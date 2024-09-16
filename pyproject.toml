@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "godot-asset-uploader"
+version = "0.1.0"
+description = "Automatically upload and update assets in Godot Asset Library"
+authors = ["Maciej Katafiasz <mathrick@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.scripts]
+gdasset = "godot_asset_uploader.main:main"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+mistletoe = "^1.4.0"
+click = "^8.1.7"
+dulwich = "^0.22.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
