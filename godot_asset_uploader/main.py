@@ -3,7 +3,7 @@ import sys
 
 import click
 
-from . import vcs, config
+from . import vcs, config, rest_api
 from .errors import *
 from .markdown import Renderer, Document
 
@@ -22,11 +22,10 @@ def shared_options(cmd):
     def make_cfg_and_call(ctx, readme, changelog, root, *args, **kwargs):
         project_root = vcs.get_project_root(root)
         cfg = config.Config(
-            readme=project_root / readme,
-            changelog=changelog and project_root / changelog
+            root=project_root,
+            readme=readme,
+            changelog=changelog,
         )
-        if not cfg.readme.exists():
-            raise GdAssetError(f"Readme file '{cfg.readme}' not found")
         ctx.obj = cfg
         ctx.invoke(cmd, *args, **kwargs)
 
@@ -46,6 +45,13 @@ starting at the current directory."""
         with Renderer(cfg, max_line_length=None) as renderer:
             rendered = renderer.render(Document(input))
             print(rendered)
+
+@cli.command()
+@click.argument("asset-id", required=True)
+@click.pass_obj
+def peek(cfg, asset_id):
+    from pprint import pprint
+    pprint(rest_api.get_asset_info(asset_id))
 
 
 def die(msg, code=1):
