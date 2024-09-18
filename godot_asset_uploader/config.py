@@ -11,6 +11,9 @@ class Config:
     readme: Path
     changelog: Optional[Path] = None
 
+    unwrap_links: bool = True
+    preserve_html: bool = False
+
     def __post_init__(self):
         self.root = self.root.absolute()
         path_fields = [f for f in fields(self)

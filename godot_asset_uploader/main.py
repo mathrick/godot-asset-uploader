@@ -1,3 +1,4 @@
+from dataclasses import fields
 from functools import wraps
 import sys
 
@@ -5,7 +6,9 @@ import click
 
 from . import vcs, config, rest_api
 from .errors import *
-from .markdown import Renderer, Document
+from .markdown import get_asset_payload
+
+VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
 
 @click.group()
 def cli():
@@ -16,6 +19,13 @@ based on the project repository."""
 def shared_options(cmd):
     @click.option("--readme", default="README.md", help="Location of README file, relative to project root")
     @click.option("--changelog", default="CHANGELOG.md", help="Location of changelog file, relative to project root")
+    @click.option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
+                  help="If true, links will be converted to <http://foo.bar> form. "
+                  "This is the default, since the asset library does not support any form of markup. "
+                  "If false, the original syntax, as used in the source Markdown file, will be preserved. "
+                  "Does not affect processing links to images and videos.")
+    @click.option("--preserve-html/--no-preserve-html", default=False, show_default=True,
+                  help="If true, raw HTML fragments in Markdown will be left as-is. Otherwise they will be omitted from the output.")
     @click.argument("root", default=".")
     @click.pass_context
     @wraps(cmd)
@@ -25,7 +35,11 @@ def shared_options(cmd):
             root=project_root,
             readme=readme,
             changelog=changelog,
+            **kwargs,
         )
+        for field in fields(cfg):
+            if field.name in kwargs:
+                del kwargs[field.name]
         ctx.obj = cfg
         ctx.invoke(cmd, *args, **kwargs)
 
@@ -41,10 +55,7 @@ ROOT should be the root of the project, meaning a directory containing
 the file 'gdasset.ini', or a VCS repository (currently, only Git is
 supported). If not specified, it will be determined automatically,
 starting at the current directory."""
-    with open(cfg.readme) as input:
-        with Renderer(cfg, max_line_length=None) as renderer:
-            rendered = renderer.render(Document(input))
-            print(rendered)
+    print(get_asset_payload(cfg))
 
 @cli.command()
 @click.argument("asset-id", required=True)
@@ -52,7 +63,6 @@ starting at the current directory."""
 def peek(cfg, asset_id):
     from pprint import pprint
     pprint(rest_api.get_asset_info(asset_id))
-
 
 def die(msg, code=1):
     print("ERROR:", msg, file=sys.stdout)
