@@ -1,5 +1,56 @@
+import email
+from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import typing as t
+
+VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
+IMAGE_EXTS = (".jpg", ".png", ".webp", ".gif")
+
+YOUTUBE_URL = "https://youtube.com/watch?v={id}"
+
+def is_interesting_link(href):
+    "Return True if href is 'interesting', ie. might potentially point to preview media"
+    uri = urlparse(href)
+    if uri.scheme and uri.scheme not in ("http", "https"):
+        return False
+    if not uri.scheme:
+        _, maybe_email = email.utils.parseaddr(uri.path)
+        # If we see an @, we assume it's an email, since GFM will
+        # parse and autolink it as an email
+        if "@" in maybe_email:
+            return False
+    return True
+
+def is_image_link(href):
+    uri = urlparse(href)
+    return uri.path and any([uri.path.lower().endswith(ext) for ext in IMAGE_EXTS])
+
+def normalise_youtube_link(href):
+    uri = urlparse(href)
+    if uri.scheme and uri.scheme in ["http", "https"]:
+        path = uri.path.strip("/")
+        qs = parse_qs(uri.query)
+        if uri.netloc.endswith("youtube.com") or uri.netloc.endswith("youtube-nocookie.com"):
+            if path == "oembed":
+                return normalise_youtube_link(qs["url"][0]) if "url" in qs else None
+            if path in ("watch", "embed"):
+                return YOUTUBE_URL.format(id=qs["v"][0]) if "v" in qs else None
+            if any(path.startswith(f"{x}/") for x in ["watch", "embed", "v", "e", "live", "shorts"]):
+                return YOUTUBE_URL.format(id=path.split("/")[-1])
+        if uri.netloc.endswith("youtu.be"):
+            return YOUTUBE_URL.format(id=path)
+    return None
+
+def normalise_video_link(href):
+    if (out := normalise_youtube_link(href)):
+        return out
+    uri = urlparse(href)
+    if uri.path and any([uri.path.lower().endswith(ext) for ext in VIDEO_EXTS]):
+        return href
+    return None
+
+def is_youtube_link(href):
+    return normalise_youtube_link(href) is not None
 
 def unexpanduser(path):
     path = Path(path)

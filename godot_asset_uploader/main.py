@@ -8,8 +8,6 @@ from . import vcs, config, rest_api
 from .errors import *
 from .markdown import get_asset_payload
 
-VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
-
 @click.group()
 def cli():
     """Automatically upload or update an asset in Godot Asset Library

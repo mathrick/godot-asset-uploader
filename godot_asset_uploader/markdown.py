@@ -9,6 +9,7 @@ from mistletoe.markdown_renderer import MarkdownRenderer, Fragment
 from mistletoe.ast_renderer import AstRenderer
 
 from .errors import *
+from .util import is_interesting_link, normalise_video_link, is_image_link
 
 class MetaItem(SpanToken):
     def __init__(self, matches):
@@ -167,7 +168,6 @@ images, video, and HTML fragments"""
 
         raise GdAssetError(f"Unsupported directive: '{item.tag}'")
 
-
 def get_asset_payload(cfg):
     description = None
     previews = []
@@ -178,9 +178,12 @@ def get_asset_payload(cfg):
 
     def process_link(token):
         uri = urlparse(token.target)
-        if uri.scheme and uri.scheme not in ("http", "https"):
+        if not is_interesting_link(token.target):
             pass
-        elif uri.path and any([uri.path.lower().endswith(ext) for ext in VIDEO_EXTS]):
+        elif (href := normalise_video_link(token.target)):
+            previews.append(href)
+            return None
+        elif is_image_link(token.target):
             previews.append(token.target)
             return None
         # All links will be converted to autolink syntax, since the asset
@@ -201,5 +204,4 @@ def get_asset_payload(cfg):
                       max_line_length=None) as renderer:
             description = renderer.render(Document(input))
 
-    print("previews", previews)
     return description
