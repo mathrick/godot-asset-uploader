@@ -3,10 +3,13 @@ from urllib.parse import urlparse
 import re
 
 from mistletoe import Document
+from mistletoe.core_tokens import MatchObj
 from mistletoe.block_token import BlockToken, List, Paragraph
-from mistletoe.span_token import SpanToken
+from mistletoe.span_token import SpanToken, AutoLink
 from mistletoe.markdown_renderer import MarkdownRenderer, Fragment
 from mistletoe.ast_renderer import AstRenderer
+
+from validator_collection.checkers import is_url
 
 from .errors import *
 from .util import is_interesting_link, normalise_video_link, is_image_link
@@ -25,6 +28,48 @@ class MetaItem(SpanToken):
     def content(self):
         return ": ".join([self.tag] + ([self.value] if self.value is not None else []))
 
+
+# Annoyingly, GFM will sometimes only embed videos if it's a bare URL without
+# any markup (ie. not a regular MD link syntax, nor the CommonMark autolink,
+# ie. <http://foo>). Using markup sometimes actually disables the embedding (!),
+# though the results of my testing are inconsistent, and sometimes it's the
+# marked up link that works. This means we really need to have what GFM calls
+# extended autolinks, or otherwise using the unmodified README.md will not work
+# reliably.
+#
+# In any event, it seems they restrict embeds exclusively to uploaded
+# attachments (ie. https://github.com/user-attachments/assets/..., as well as
+# *.githubusercontent.com), so that a link to an external mp4 file for example
+# will not trigger an embed, no matter the syntax.
+class ExtendedAutoLink(AutoLink):
+    # https://github.github.com/gfm/#autolinks-extension-
+    pattern = re.compile("(?:^|[\s*_~(])(http(s)?://[^\s\a\b\f\n\r\t\v<>]+)")
+    entity_ref_pattern = re.compile("&[a-zA-Z0-9]+;$")
+    parse_inner=False
+
+    @classmethod
+    def find(cls, string):
+        candidates = []
+        # Apply extended autolink path validation from GFM
+        for match in cls.pattern.finditer(string):
+            # Strip trailing punctuation
+            cand = match.group(1).rstrip("?!.,:*_~")
+            # Strip umatched closing parens
+            if cand.endswith(")"):
+                unmatched = sum([-1 if c == "(" else -1 for c in cand if c in "()"])
+                if unmatched < 0:
+                    cand = cand[:unmatched]
+            # Strip potential HTML entity references
+            if cand.endswith(";"):
+                if (ref := cand.search(cls.entity_ref_pattern)):
+                    cand = cand[:ref.start()]
+            if is_url(cand):
+                # Need to recreate the match object to reflect our updated candidate
+                start = match.start(1)
+                end = match.start(1) + len(cand)
+                match = MatchObj(start, end, (start, end, cand))
+                candidates.append(match)
+        return candidates
 
 class MetaComment(BlockToken):
     START_REGEX = re.compile("^[^<]*<!--- (.*?)( -->)?$")
@@ -67,7 +112,7 @@ class Renderer(MarkdownRenderer):
         self.link_callback = link_callback
         self.html_callback = html_callback
         self.suppressed = []
-        super().__init__(MetaComment, **kwargs)
+        super().__init__(MetaComment, ExtendedAutoLink, **kwargs)
 
     def suppress(self, token):
         if token not in self.suppressed:
@@ -113,7 +158,7 @@ images, video, and HTML fragments"""
             return func
 
         return do_delegate
-        
+
     @delegated("image_callback")
     def render_image(self, token):
         pass
@@ -124,6 +169,10 @@ images, video, and HTML fragments"""
 
     @delegated("link_callback")
     def render_auto_link(self, token):
+        pass
+
+    @delegated("link_callback")
+    def render_extended_auto_link(self, token):
         pass
 
     @delegated("html_callback")
@@ -189,7 +238,7 @@ def get_asset_payload(cfg):
         # All links will be converted to autolink syntax, since the asset
         # library doesn't support any form of markup whatsoever
         if cfg.unwrap_links:
-            return [Fragment(f"<{token.target}>")]
+            return [Fragment(f"{token.target}")]
         else:
             return True
 
