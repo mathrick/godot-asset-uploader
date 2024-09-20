@@ -3,6 +3,8 @@ from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import typing as t
 
+import click
+
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
 IMAGE_EXTS = (".jpg", ".png", ".webp", ".gif")
 
@@ -75,3 +77,26 @@ such as Optional[Dict[str,int]]"""
         return T
 
     return issubclass(x, tuple([get_base_type(T) for T in ensure_tuple(spec)]))
+
+
+class OptionRequiredIfMissing(click.Option):
+    """Option is required if the context does not have `option` set"""
+
+    def __init__(self, *a, **k):
+        try:
+            option = k.pop("required_if_missing")
+        except KeyError:
+            raise KeyError(
+                "OptionRequiredIfMissing needs the required_if_missing keyword argument"
+            )
+
+        super().__init__(*a, **k)
+        self._option = option
+
+    def process_value(self, ctx, value):
+        required = not ctx.params[self._option]
+        dep_value = super().process_value(ctx, value)
+        if required and dep_value is None:
+            msg = "Required if --{} is not provided".format(self._option)
+            raise click.MissingParameter(ctx=ctx, param=self, message=msg)
+        return value

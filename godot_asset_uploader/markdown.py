@@ -71,7 +71,7 @@ class ExtendedAutoLink(AutoLink):
                 candidates.append(match)
         return candidates
 
-class MetaComment(BlockToken):
+class Directive(BlockToken):
     START_REGEX = re.compile("^[^<]*<!--- (.*?)( -->)?$")
     END_REGEX = re.compile("^(.*) -->")
 
@@ -112,7 +112,7 @@ class Renderer(MarkdownRenderer):
         self.link_callback = link_callback
         self.html_callback = html_callback
         self.suppressed = []
-        super().__init__(MetaComment, ExtendedAutoLink, **kwargs)
+        super().__init__(Directive, ExtendedAutoLink, **kwargs)
 
     def suppress(self, token):
         if token not in self.suppressed:
@@ -183,7 +183,7 @@ images, video, and HTML fragments"""
     def render_html_block(self, token, max_line_length=None):
         pass
 
-    def render_meta_comment(self, token, max_line_length=None):
+    def render_directive(self, token, max_line_length=None):
         item = token.children[0]
         if item.tag == "changelog":
             if not self.config.changelog.exists():
@@ -217,23 +217,24 @@ images, video, and HTML fragments"""
 
         raise GdAssetError(f"Unsupported directive: '{item.tag}'")
 
+
 def get_asset_payload(cfg):
     description = None
     previews = []
-    html = []
 
     def process_image(token):
-        previews.append(token.src)
+        previews.append({"type": "image", "href": token.src})
 
     def process_link(token):
+        print("got link", token.target)
         uri = urlparse(token.target)
         if not is_interesting_link(token.target):
             pass
         elif (href := normalise_video_link(token.target)):
-            previews.append(href)
+            previews.append({"type": "video", "href": href})
             return None
         elif is_image_link(token.target):
-            previews.append(token.target)
+            previews.append({"type": "image", "href": token.target})
             return None
         # All links will be converted to autolink syntax, since the asset
         # library doesn't support any form of markup whatsoever
@@ -253,4 +254,4 @@ def get_asset_payload(cfg):
                       max_line_length=None) as renderer:
             description = renderer.render(Document(input))
 
-    return description
+    return (description, previews)

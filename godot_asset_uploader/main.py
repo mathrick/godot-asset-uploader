@@ -7,6 +7,7 @@ import click
 from . import vcs, config, rest_api
 from .errors import *
 from .markdown import get_asset_payload
+from .util import OptionRequiredIfMissing
 
 @click.group()
 def cli():
@@ -15,8 +16,18 @@ based on the project repository."""
     pass
 
 def shared_options(cmd):
-    @click.option("--readme", default="README.md", help="Location of README file, relative to project root")
-    @click.option("--changelog", default="CHANGELOG.md", help="Location of changelog file, relative to project root")
+    @click.option("--readme", default="README.md",
+                  help="Location of README file, relative to project root")
+    @click.option("--changelog", default="CHANGELOG.md",
+                  help="Location of changelog file, relative to project root")
+    @click.option("--plugin",
+                  help="If specified, should be the path to a plugin.cfg file, "
+                  "which will be used to auto-populate project info")
+    @click.option("--version", required_if_missing="plugin",
+                  help="Asset version. Required if --plugin is not provided", cls=OptionRequiredIfMissing)
+    @click.option("--title", required_if_missing="plugin",
+                  help="Title / short description of the asset. "
+                  "Required if --plugin is not provided", cls=OptionRequiredIfMissing)
     @click.option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
                   help="If true, links will be converted to <http://foo.bar> form. "
                   "This is the default, since the asset library does not support any form of markup. "
@@ -27,12 +38,10 @@ def shared_options(cmd):
     @click.argument("root", default=".")
     @click.pass_context
     @wraps(cmd)
-    def make_cfg_and_call(ctx, readme, changelog, root, *args, **kwargs):
+    def make_cfg_and_call(ctx, root, *args, **kwargs):
         project_root = vcs.get_project_root(root)
         cfg = config.Config(
             root=project_root,
-            readme=readme,
-            changelog=changelog,
             **kwargs,
         )
         for field in fields(cfg):
@@ -53,7 +62,10 @@ ROOT should be the root of the project, meaning a directory containing
 the file 'gdasset.ini', or a VCS repository (currently, only Git is
 supported). If not specified, it will be determined automatically,
 starting at the current directory."""
-    print(get_asset_payload(cfg))
+    description, previews = get_asset_payload(cfg)
+    print(description)
+    from pprint import pp
+    pp(previews)
 
 @cli.command()
 @click.argument("asset-id", required=True)
