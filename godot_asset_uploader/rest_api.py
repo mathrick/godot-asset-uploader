@@ -1,9 +1,16 @@
 from itertools import dropwhile
 from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlparse
+
 import requests
 
+from .util import StrEnum
+
 OFFICIAL_LIBRARY_ROOT = "https://godotengine.org/"
+
+class RepoProvider(StrEnum):
+    CUSTOM = "Custom"
+    GITHUB = "GitHub"
 
 def guess_asset_id(id_or_url):
     "Attempt to guess asset id from what might be an existing URL"

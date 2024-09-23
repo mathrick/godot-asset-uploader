@@ -11,6 +11,7 @@ from mistletoe.ast_renderer import AstRenderer
 
 from validator_collection.checkers import is_url
 
+from . import config
 from .errors import *
 from .util import is_interesting_link, normalise_video_link, is_image_link
 
@@ -218,7 +219,8 @@ images, video, and HTML fragments"""
         raise GdAssetError(f"Unsupported directive: '{item.tag}'")
 
 
-def get_asset_payload(cfg):
+def get_asset_description(cfg: config.Config):
+    "Return description (str) and previews (list of dicts) for the asset"
     description = None
     previews = []
 

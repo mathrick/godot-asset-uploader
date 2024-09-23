@@ -17,6 +17,8 @@ class Config:
     version: Optional[str] = None
     title: Optional[str] = None
 
+    repo_provider: Optional[str] = None
+
     unwrap_links: bool = True
     preserve_html: bool = False
 

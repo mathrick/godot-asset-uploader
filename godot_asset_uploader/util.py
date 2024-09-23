@@ -1,9 +1,13 @@
 import email
+from enum import Enum
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import typing as t
 
 import click
+
+class StrEnum(str, Enum):
+    pass
 
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
 IMAGE_EXTS = (".jpg", ".png", ".webp", ".gif")
@@ -59,10 +63,16 @@ def unexpanduser(path):
     if path.is_relative_to(Path.home()):
         return "~" / path.relative_to(Path.home())
 
+def is_sequence(x):
+    return isinstance(x, t.Sequence) and not isinstance(x, (bytes, str))
+
 def ensure_tuple(x):
     if isinstance(x, tuple):
         return x
     return (x,)
+
+def ensure_sequence(x):
+    return x if is_sequence(x) else (x,)
 
 def is_typed_as(spec, x):
     """Return True if X (a type) matches SPEC (a type annotation). SPEC
@@ -78,25 +88,35 @@ such as Optional[Dict[str,int]]"""
 
     return issubclass(x, tuple([get_base_type(T) for T in ensure_tuple(spec)]))
 
+def option(*args, **kwargs):
+    kw = {"show_default": True}
+    kw.update(kwargs)
+    return click.option(*args, **kw)
 
 class OptionRequiredIfMissing(click.Option):
-    """Option is required if the context does not have `option` set"""
+    """Dependent option which is required if the context does not have
+specified option(s) set"""
 
     def __init__(self, *a, **k):
         try:
-            option = k.pop("required_if_missing")
+            options = ensure_sequence(k.pop("required_if_missing"))
         except KeyError:
             raise KeyError(
                 "OptionRequiredIfMissing needs the required_if_missing keyword argument"
             )
 
         super().__init__(*a, **k)
-        self._option = option
+        self._options = options
 
     def process_value(self, ctx, value):
-        required = not ctx.params[self._option]
+        required = not any(ctx.params.get(opt) for opt in self._options)
         dep_value = super().process_value(ctx, value)
         if required and dep_value is None:
-            msg = "Required if --{} is not provided".format(self._option)
+            opt_names = [f"'{prefix}{p.human_readable_name}'" for p in ctx.command.params
+                         for prefix in ["" if p.param_type_name == "argument" else "--"]
+                         if p.name in self._options]
+            # opt_names might be empty, e.g. if the only option is 'url' and
+            # it's not taken by the currently processed command
+            msg = f"Required unless one of {', '.join(opt_names)} is provided" if opt_names else None
             raise click.MissingParameter(ctx=ctx, param=self, message=msg)
         return value
