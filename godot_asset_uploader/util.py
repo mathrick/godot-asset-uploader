@@ -9,6 +9,7 @@ import click
 class StrEnum(str, Enum):
     pass
 
+
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
 IMAGE_EXTS = (".jpg", ".png", ".webp", ".gif")
 

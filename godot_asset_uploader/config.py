@@ -18,6 +18,7 @@ class Config:
     title: Optional[str] = None
 
     repo_provider: Optional[str] = None
+    licence: Optional[str] = None
 
     unwrap_links: bool = True
     preserve_html: bool = False
@@ -36,6 +37,8 @@ class Config:
                 raise GdAssetError(f"{field.name.capitalize()} file '{val}' not found")
 
         if self.plugin:
+            if not self.plugin.exists():
+                raise GdAssetError(f"{self.plugin} not found")
             ini = tomlkit.parse(self.plugin.read_text())
             try:
                 if self.version is None:

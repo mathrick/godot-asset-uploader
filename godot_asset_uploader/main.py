@@ -15,6 +15,21 @@ def cli():
 based on the project repository."""
     pass
 
+@click.pass_context
+def default_repo_provider(ctx):
+    project_root = vcs.get_project_root(ctx.params['root'])
+    return vcs.guess_repo_provider(project_root)
+
+@click.pass_context
+def default_repo_url(ctx):
+    project_root = vcs.get_project_root(ctx.params['root'])
+    return vcs.guess_repo_url(project_root)
+
+@click.pass_context
+def default_commit(ctx):
+    project_root = vcs.get_project_root(ctx.params['root'])
+    return vcs.vcs_guess_commit(project_root)
+
 def shared_options(cmd):
     @option("--readme", default="README.md",
             help="Location of README file, relative to project root")
@@ -30,6 +45,12 @@ def shared_options(cmd):
             "Required unless --plugin or update URL is provided", cls=OptionRequiredIfMissing)
     @option("--licence", required_if_missing="url",
             help="Asset's licence. Required unless update URL is provided", cls=OptionRequiredIfMissing)
+    @option("--repo-provider", required_if_missing="url",
+            type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
+            default=default_repo_provider,
+            help="Repository provider. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing)
+    @option("--repo-url", required_if_missing="url", default=default_repo_url,
+            help="Repository URL. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing)
     @option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
             help="If true, all Markdown links will be converted to plain URLs. "
             "This is the default, since the asset library does not support any form of markup. "
@@ -37,7 +58,7 @@ def shared_options(cmd):
             "Does not affect processing links to images and videos.")
     @option("--preserve-html/--no-preserve-html", default=False, show_default=True,
             help="If true, raw HTML fragments in Markdown will be left as-is. Otherwise they will be omitted from the output.")
-    @click.argument("root", default=".")
+    @click.argument("root", default=".", is_eager=True)
     @click.pass_context
     @wraps(cmd)
     def make_cfg_and_call(ctx, root, *args, **kwargs):
@@ -52,7 +73,14 @@ def shared_options(cmd):
         ctx.invoke(cmd, *args, **kwargs)
 
     return make_cfg_and_call
-        
+
+def get_asset_payload(cfg: config.Config):
+    """Based on CFG, get the payload dict for the asset suitable for posting to the
+asset library. The payload generated might not be complete, and might need to be
+merged with another dict to provide missing values (this is the case for updates)"""
+    description, previews = get_asset_description(cfg)
+    repo_provider = cfg.repo_provider
+
 @cli.command()
 @shared_options
 @click.pass_obj

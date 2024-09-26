@@ -7,10 +7,33 @@ import requests
 from .util import StrEnum
 
 OFFICIAL_LIBRARY_ROOT = "https://godotengine.org/"
+# FIXME: This is not actually stated anywhere in the docs, but circumstancial
+# evidence suggests that categories and their ids are specific to the given
+# library. This will need refactoring if other libraries ever become a thing
+OFFICIAL_LIBRARY_CATEGORIES = {
+    "Addons": {
+        1: "2D Tools",
+        2: "3D Tools",
+        3: "Shaders",
+        4: "Materials",
+        5: "Tools",
+        6: "Scripts",
+        7: "Misc"
+    },
+    "Projects": {
+        8: "Templates",
+        9: "Projects",
+        10: "Demos",
+    },
+}
 
+# FIXME: Support other providers
 class RepoProvider(StrEnum):
     CUSTOM = "Custom"
     GITHUB = "GitHub"
+    GITLAB = "GitLab"
+    BITBUCKET = "BitBucket"
+
 
 def guess_asset_id(id_or_url):
     "Attempt to guess asset id from what might be an existing URL"
