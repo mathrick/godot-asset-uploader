@@ -14,11 +14,16 @@ class Config:
     readme: Path
     changelog: Optional[Path] = None
     plugin: Optional[Path] = None
-    version: Optional[str] = None
-    title: Optional[str] = None
 
-    repo_provider: Optional[str] = None
+    version: Optional[str] = None
+    godot_version: Optional[str] = None
     licence: Optional[str] = None
+
+    title: Optional[str] = None
+    icon_url: Optional[str] = None
+    repo_url: Optional[str] = None
+    repo_provider: Optional[str] = None
+    commit: Optional[str] = None
 
     unwrap_links: bool = True
     preserve_html: bool = False

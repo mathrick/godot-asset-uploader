@@ -90,7 +90,9 @@ such as Optional[Dict[str,int]]"""
     return issubclass(x, tuple([get_base_type(T) for T in ensure_tuple(spec)]))
 
 def option(*args, **kwargs):
-    kw = {"show_default": True}
+    kw = {}
+    if any(kwargs.get(k) for k in ["required", "required_if_missing"]):
+        kw = {"prompt": True}
     kw.update(kwargs)
     return click.option(*args, **kw)
 

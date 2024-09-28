@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from .util import StrEnum
+from .errors import *
 
 OFFICIAL_LIBRARY_ROOT = "https://godotengine.org/"
 # FIXME: This is not actually stated anywhere in the docs, but circumstancial
@@ -54,10 +55,29 @@ def get_library_url(*path):
     url = urljoin(OFFICIAL_LIBRARY_ROOT, rest)
     return url
 
-def get_library_json(url, params=None, headers=None):
+def api_request(meth, *url, params=None, headers=None):
     headers = headers or {}
     headers.update({'Accept': 'application/json'})
-    return requests.get(url, headers=headers, params=params).json()
+    req = requests.request(meth, get_library_url(*url), headers=headers, data=params)
+    try:
+        req.raise_for_status()
+    except requests.HTTPError:
+        try:
+            detail = req.json().get("error", "")
+            detail = detail and f": {detail}"
+        except requests.JSONDecodeError:
+            detail = ""
+        raise GdAssetError(f"API request to '{'/'.join(url)}' failed with code {req.status_code}{detail}")
+    return req.json()
+
+def GET(*url, params=None, headers=None):
+    return api_request("get", *url, params=params, headers=headers)
+
+def POST(*url, params=None, headers=None):
+    return api_request("post", *url, params=params, headers=headers)
 
 def get_asset_info(id):
-    return get_library_json(get_library_url("asset", guess_asset_id(id)))
+    return GET("asset", guess_asset_id(id))
+
+def login(user, passwd):
+    json = POST("login", params={"username": user, "password": passwd})

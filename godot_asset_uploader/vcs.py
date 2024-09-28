@@ -132,12 +132,12 @@ def guess_git_commit(root):
     with git.open_repo_closing(root) as repo:
         return repo.head().decode()
 
-def guess_repo_commit(root):
+def guess_commit(root):
     repo_type, vcs_root = guess_vcs_type(root)
     if not repo_type:
         return None
     if repo_type == "git":
         return guess_git_commit(root)
     raise NotImplementedError(
-        f"Commit fetching for {repo_type} not implemented"
+        f"Head commit extraction for {repo_type} not implemented"
     )
