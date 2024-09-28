@@ -1,4 +1,4 @@
-from dataclasses import fields
+import dataclasses
 from functools import wraps
 import sys
 
@@ -7,7 +7,7 @@ import click
 from . import vcs, config, rest_api
 from .errors import *
 from .markdown import get_asset_description
-from .util import option, OptionRequiredIfMissing
+from .util import OptionRequiredIfMissing, PriorityProcessingCommand
 
 CMD_EPILOGUE = """Most parameters can be inferred from the project repository,
 README.md, plugin.cfg, and the existing library asset (when performing
@@ -20,39 +20,80 @@ def cli():
 based on the project repository."""
     pass
 
-# NOTE: ctx.obj is set to project root during command processing, and config afterwards
+class DefaultState:
+    "Simple class to hold state during argument parsing and defaults computation"
+    pass
+
 def process_root(ctx, _, path):
-    ctx.obj = vcs.get_project_root(path)
-    return ctx.obj
+    ctx.obj = config.Config(
+        root=vcs.get_project_root(path),
+        # Fake value, since readme is required
+        readme="."
+    ).try_load()
+    return ctx.obj.root
+
+def process_plugin(ctx, _, plugin_path):
+    ctx.obj = dataclasses.replace(ctx.obj, plugin=plugin_path)
+    return ctx.obj.plugin
+
+# Generic process callback to update config
+def process_param(ctx, param, value):
+    cfg_kwargs = {field.name for field in dataclasses.fields(config.Config)}
+    if param.name in cfg_kwargs:
+        ctx.obj = dataclasses.replace(ctx.obj, **{param.name: value})
+    return getattr(ctx.obj, param.name)
 
 @click.pass_obj
-def default_repo_provider(project_root):
-    return vcs.guess_repo_provider(project_root)
+def default_repo_provider(state):
+    return state.repo_provider or vcs.guess_repo_provider(state.repo_url)
 
 @click.pass_obj
-def default_repo_url(project_root):
-    return vcs.guess_repo_url(project_root)
+def default_repo_url(state):
+    return state.repo_url or vcs.guess_repo_url(state.root)
 
 @click.pass_obj
-def default_commit(project_root):
-    return vcs.guess_commit(project_root)
+def default_issues_url(state):
+    return state.issues_url or vcs.guess_issues_url(state.repo_url)
+
+@click.pass_obj
+def default_commit(state):
+    return vcs.guess_commit(state.root)
+
+def default_from_plugin(key):
+    @click.pass_obj
+    def default_value(cfg):
+        return cfg.get_plugin_key(key)
+
+    return default_value
+
+
+class Command(PriorityProcessingCommand):
+    PRIORITY_LIST = ["root", "plugin", "repo_url"]
+
+
+def option(*args, **kwargs):
+    kw = {"callback": process_param}
+    if any(kwargs.get(k) for k in ["required", "required_if_missing"]):
+        kw.update({"prompt": True})
+    kw.update(kwargs)
+    return click.option(*args, **kw)
 
 def shared_options(cmd):
     @option("--readme", default="README.md", metavar="PATH", show_default=True,
             help="Location of README file, relative to project root")
     @option("--changelog", default="CHANGELOG.md", metavar="PATH", show_default=True,
             help="Location of changelog file, relative to project root")
-    @option("--plugin", metavar="PATH",
+    @option("--plugin", metavar="PATH", callback=process_plugin, is_eager=True,
             help="If specified, should be the path to a plugin.cfg file, "
             "which will be used to auto-populate project info")
-    @option("--version", required_if_missing="plugin",
+    @option("--version", required_if_missing="plugin", default=default_from_plugin("version"),
             help="Asset version. Required unless --plugin is provided", cls=OptionRequiredIfMissing)
     @option("--godot-version", required_if_missing="url",
             help="Minimum Godot version asset is compatible with. "
             "Required unless update URL is provided", cls=OptionRequiredIfMissing)
     @option("--licence", required_if_missing="url",
             help="Asset's licence. Required unless update URL is provided", cls=OptionRequiredIfMissing)
-    @option("--title", required_if_missing=["plugin", "url"],
+    @option("--title", required_if_missing=["plugin", "url"], default=default_from_plugin("name"),
             help="Title / short description of the asset. "
             "Required unless --plugin or update URL is provided", cls=OptionRequiredIfMissing)
     @option("--icon-url", required_if_missing="url", help="Icon URL", cls=OptionRequiredIfMissing)
@@ -62,6 +103,8 @@ def shared_options(cmd):
             type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
             default=default_repo_provider,
             help="Repository provider. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing)
+    @option("--issues-url", required_if_missing="url", default=default_issues_url,
+            help="URL for reporting issues. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing)
     @option("--commit", required_if_missing="url", default=default_commit,
             help="Commit ID to upload. Will be inferred from current repo if possible.", cls=OptionRequiredIfMissing)
     @option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
@@ -71,18 +114,15 @@ def shared_options(cmd):
             "Does not affect processing links to images and videos.")
     @option("--preserve-html/--no-preserve-html", default=False, show_default=True,
             help="If true, raw HTML fragments in Markdown will be left as-is. Otherwise they will be omitted from the output.")
+    @option("--save/--no-save", default=True, show_default=True, prompt="Save these answers as defaults?",
+            help="If true, config will be saved as gdasset.toml in the project root.")
     @click.argument("root", default=".", is_eager=True, callback=process_root)
     @click.pass_context
     @wraps(cmd)
     def make_cfg_and_call(ctx, root, *args, **kwargs):
-        project_root = ctx.obj
         cfg_kwargs = {field.name: kwargs.pop(field.name)
-                      for field in fields(config.Config) if field.name in kwargs}
-        cfg = config.Config(
-            root=project_root,
-            **cfg_kwargs,
-        )
-        ctx.obj = cfg
+                      for field in dataclasses.fields(config.Config) if field.name in kwargs}
+        ctx.obj = dataclasses.replace(ctx.obj, **cfg_kwargs)
         ctx.invoke(cmd, *args, **kwargs)
 
     return make_cfg_and_call
@@ -107,20 +147,22 @@ merged with another dict to provide missing values (this is the case for updates
         "previews": previews,
     }
 
-@cli.command(epilog=CMD_EPILOGUE)
+@cli.command(epilog=CMD_EPILOGUE, cls=Command)
 @shared_options
 @click.pass_obj
-def upload(cfg):
+def upload(cfg, save):
     """Test command
 
 ROOT should be the root of the project, meaning a directory containing
-the file 'gdasset.ini', or a VCS repository (currently, only Git is
+the file 'gdasset.toml', or a VCS repository (currently, only Git is
 supported). If not specified, it will be determined automatically,
 starting at the current directory."""
     description, previews = get_asset_description(cfg)
     print(description)
     from pprint import pp
     pp(previews)
+    if save:
+        cfg.save()
 
 @cli.command()
 @click.argument("url", required=True)

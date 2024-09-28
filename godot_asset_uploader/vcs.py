@@ -1,6 +1,6 @@
 from itertools import chain
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 from dulwich.repo import Repo as GitRepo
 import dulwich.porcelain as git
@@ -87,6 +87,33 @@ been detected, starting at PATH and going up the parent chain"""
             return ("git", path)
     return (None, None)
 
+def dispatch_vcs(mapping, error_detail, docstring=None):
+    def dispatch(root, *args, **kwargs):
+        try:
+            vcs_type, root = guess_vcs_type(root)
+            if not vcs_type:
+                return None
+            return mapping[vcs_type](root, *args, **kwargs)
+        except KeyError:
+            raise NotImplementedError(
+                f"{error_detail} for {vcs_type} not implemented"
+            )
+
+    if docstring is not None:
+        dispatch.__doc__ = docstring
+    return dispatch
+
+def dispatch_url(guessers, docstring=None):
+    def dispatch(url):
+        for guesser in guessers:
+            if (cand := guesser(url)):
+                return cand
+        return None
+
+    if docstring is not None:
+        dispatch.__doc__ = docstring
+    return dispatch
+
 def guess_git_repo_url(root):
     with git.open_repo_closing(root) as repo:
         remote, url = git_get_remote_repo(repo)
@@ -103,41 +130,27 @@ def guess_git_repo_url(root):
         # a local directory for instance.
         return url if remote and parsed.valid else None
 
-def guess_repo_url(root):
-    repo_type, vcs_root = guess_vcs_type(root)
-    if not repo_type:
-        return None
-    if repo_type == "git":
-        return guess_git_repo_url(root)
-    raise NotImplementedError(
-        f"Repo URL detection for {repo_type} not implemented"
-    )
+guess_repo_url = dispatch_vcs({"git": guess_git_repo_url}, "Repo URL detection")
 
-def guess_git_repo_provider(root):
-    url = guess_git_repo_url(root)
+def guess_git_repo_provider(url):
     platform = (giturlparse.parse(url or "").platform or "custom").upper()
     return url and RepoProvider.__members__.get(platform , RepoProvider.CUSTOM)
 
-def guess_repo_provider(root):
-    repo_type, vcs_root = guess_vcs_type(root)
-    if not repo_type:
-        return None
-    if repo_type == "git":
-        return guess_git_repo_provider(root)
-    raise NotImplementedError(
-        f"Repo provider detection for {repo_type} not implemented"
-    )
+guess_repo_provider = dispatch_url([guess_git_repo_provider])
+
+def guess_git_issues_url(url):
+    "Try to guess the issues URL based on the remote repo URL"
+    provider = guess_git_repo_provider(url)
+    if provider in [RepoProvider.GITHUB, RepoProvider.GITHUB, RepoProvider.BITBUCKET]:
+        # Can't use urljoin because it's very sensitive to the trailing slash
+        parsed = urlparse(url)
+        return parsed._replace(path=str(Path(parsed.path) / "issues")).geturl()
+    return None
+
+guess_issues_url = dispatch_url([guess_git_issues_url])
 
 def guess_git_commit(root):
     with git.open_repo_closing(root) as repo:
         return repo.head().decode()
 
-def guess_commit(root):
-    repo_type, vcs_root = guess_vcs_type(root)
-    if not repo_type:
-        return None
-    if repo_type == "git":
-        return guess_git_commit(root)
-    raise NotImplementedError(
-        f"Head commit extraction for {repo_type} not implemented"
-    )
+guess_commit = dispatch_vcs({"git": guess_git_commit}, "Head commit extraction")

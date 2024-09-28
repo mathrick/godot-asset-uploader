@@ -89,12 +89,6 @@ such as Optional[Dict[str,int]]"""
 
     return issubclass(x, tuple([get_base_type(T) for T in ensure_tuple(spec)]))
 
-def option(*args, **kwargs):
-    kw = {}
-    if any(kwargs.get(k) for k in ["required", "required_if_missing"]):
-        kw = {"prompt": True}
-    kw.update(kwargs)
-    return click.option(*args, **kw)
 
 class OptionRequiredIfMissing(click.Option):
     """Dependent option which is required if the context does not have
@@ -123,3 +117,27 @@ specified option(s) set"""
             msg = f"Required unless one of {', '.join(opt_names)} is provided" if opt_names else None
             raise click.MissingParameter(ctx=ctx, param=self, message=msg)
         return value
+
+
+class PriorityOptionParser(click.OptionParser):
+    def __init__(self, ctx, priority_list=None):
+        self.priority_list = priority_list or []
+        super().__init__(ctx)
+
+    def parse_args(self, args):
+        opts, args, order = super().parse_args(args)
+        priority_order = sorted(
+            [opt for opt in order if opt.name in self.priority_list],
+            key=lambda opt: self.priority_list.index(opt.name)
+        )
+        return (opts, args, priority_order + [opt for opt in order if opt not in priority_order])
+
+
+class PriorityProcessingCommand(click.Command):
+    PRIORITY_LIST = []
+
+    def make_parser(self, ctx):
+        parser = PriorityOptionParser(ctx, self.PRIORITY_LIST)
+        for param in self.get_params(ctx):
+            param.add_to_parser(parser, ctx)
+        return parser
