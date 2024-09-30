@@ -44,9 +44,12 @@ class Config:
     preserve_html: bool = False
 
     previous_payload: Optional[dict] = None
+    no_prompt: bool = False
+    quiet: bool = False
+    dry_run: bool = False
 
     # These fields should not be saved by save()
-    VOLATILE: ClassVar = ["version", "commit", "previous_payload"]
+    VOLATILE: ClassVar = ["version", "commit", "previous_payload", "no_prompt", "quiet", "dry_run"]
 
     def __post_init__(self):
         self._parsed_plugin = None
@@ -73,7 +76,7 @@ class Config:
             if field.default is MISSING and not (val and val.exists()):
                 raise GdAssetError(f"{field.name.capitalize()} file '{val}' not found")
 
-    def get_plugin_key(self, key):
+    def get_plugin_key(self, key, default=None):
         if self._parsed_plugin is None and self.plugin:
             if not self.plugin.exists():
                 raise GdAssetError(f"{self.plugin} not found")
@@ -85,6 +88,7 @@ class Config:
                 raise GdAssetError(f"Could not read {self.plugin.relative_to(self.root)}: {e.args[0]}")
             except KeyError as e:
                 raise GdAssetError(f"Could not read {self.plugin.relative_to(self.root)}: Key {e.args[0]} does not exist.")
+        return default
 
     def save(self, path=None, exclude=None):
         "Save config as a TOML file under PATH. If PATH is not absolute, it will be relative to self.root"

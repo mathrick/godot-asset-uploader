@@ -1,3 +1,4 @@
+from dataclasses import replace
 from itertools import dropwhile, zip_longest
 from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlparse
@@ -110,6 +111,17 @@ def merge_asset_payload(new, old=None):
                            for p_new, p_old in zip_longest(new.get("previews", []), old.get("previews", []))
                            if p_new != p_old]
     return payload
+
+def update_cfg_from_payload(cfg, json):
+    remap = {
+        "version_string": "version",
+        "cost": "licence",
+        "download_provider": "repo_provider",
+        "download_commit": "commit",
+        "browse_url": "repo_url",
+    }
+    return replace(cfg, **{remapped: v for k, v in json.items()
+                           if (remapped := remap.get(k, k)) in cfg.fields()})
 
 def login(user, passwd):
     json = POST("login", params={"username": user, "password": passwd})

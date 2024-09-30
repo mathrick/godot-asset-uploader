@@ -3,6 +3,7 @@ from enum import Enum
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import typing as t
+import shutil
 
 import click
 from click.core import ParameterSource
@@ -59,6 +60,9 @@ def normalise_video_link(href):
 def is_youtube_link(href):
     return normalise_youtube_link(href) is not None
 
+def terminal_width():
+    return shutil.get_terminal_size().columns
+
 def unexpanduser(path):
     path = Path(path)
     if path.is_relative_to(Path.home()):
@@ -99,19 +103,30 @@ def is_default_param(ctx, param):
         ParameterSource.DEFAULT_MAP,
     ]
 
-class OptionRequiredIfMissing(click.Option):
+
+class DynamicPromptOption(click.Option):
+    "Allow disabling prompting through command-line switch"
+    def prompt_for_value(self, ctx):
+        assert self.prompt is not None
+        if ctx.obj.no_prompt:
+            return self.get_default(ctx)
+        else:
+            return super().prompt_for_value(ctx)
+
+
+class OptionRequiredIfMissing(DynamicPromptOption):
     """Dependent option which is required if the context does not have
 specified option(s) set"""
 
-    def __init__(self, *a, **k):
+    def __init__(self, *args, **kwargs):
         try:
-            options = ensure_sequence(k.pop("required_if_missing"))
+            options = ensure_sequence(kwargs.pop("required_if_missing"))
         except KeyError:
             raise KeyError(
                 "OptionRequiredIfMissing needs the required_if_missing keyword argument"
             )
 
-        super().__init__(*a, **k)
+        super().__init__(*args, **kwargs)
         self._options = options
 
     def process_value(self, ctx, value):

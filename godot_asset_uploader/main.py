@@ -1,6 +1,7 @@
 import dataclasses
 from functools import wraps
 from inspect import signature
+from io import StringIO
 from pathlib import Path
 import sys
 
@@ -9,13 +10,14 @@ import click
 from . import vcs, config, rest_api
 from .errors import *
 from .markdown import get_asset_description
-from .util import (OptionRequiredIfMissing, PriorityProcessingCommand,
-                   readable_param_name, is_default_param)
+from .util import (OptionRequiredIfMissing, DynamicPromptOption, PriorityProcessingCommand,
+                   readable_param_name, is_default_param,
+                   terminal_width)
 
 CMD_EPILOGUE = """Most parameters can be inferred from the project repository,
 README.md, plugin.cfg, and the existing library asset (when performing
 an update). Missing information will be prompted for interactively,
-unless the '--non-interactive / '-N' flag was passed."""
+unless the '--assume-yes' or '-Y' flag was passed."""
 
 @click.group()
 def cli():
@@ -77,9 +79,18 @@ def default_commit(cfg):
     return vcs.guess_commit(cfg.root)
 
 def default_from_plugin(key):
+    "Get default value from config if present, or plugin.cfg otherwise"
     @click.pass_obj
     def default_value(cfg):
         return getattr(cfg, key, cfg.get_plugin_key(key))
+
+    return default_value
+
+def preferred_from_plugin(key):
+    "Like default_from_plugin(), but plugin.cfg has higher priority than existing config value"
+    @click.pass_obj
+    def default_value(cfg):
+        return cfg.get_plugin_key(key, getattr(cfg, key, None))
 
     return default_value
 
@@ -97,7 +108,7 @@ def option(*args, **kwargs):
     kw.update(kwargs)
     # This is the easiest way of robustly getting the name of the option that I
     # can think of, even if it's a bit inelegant
-    opt_class = kw.pop("cls", click.Option)
+    opt_class = kw.pop("cls", DynamicPromptOption)
     opt = opt_class(args, **kw)
     kw.setdefault("default", saved_default(opt.name))
     return click.option(*args, **kw, cls=opt_class)
@@ -112,7 +123,7 @@ def shared_options(cmd):
     @option("--plugin", metavar="PATH", callback=process_path_param, is_eager=True,
             help="If specified, should be the path to a plugin.cfg file, "
             "which will be used to auto-populate project info")
-    @option("--version", required_if_missing="plugin", default=default_from_plugin("version"),
+    @option("--version", required_if_missing="plugin", default=preferred_from_plugin("version"),
             help="Asset version. Required unless --plugin is provided", cls=OptionRequiredIfMissing)
     @option("--godot-version", required_if_missing="url",
             help="Minimum Godot version asset is compatible with. "
@@ -122,18 +133,18 @@ def shared_options(cmd):
     @option("--title", required_if_missing=["plugin", "url"], default=default_from_plugin("name"),
             help="Title / short description of the asset. "
             "Required unless --plugin or update URL is provided", cls=OptionRequiredIfMissing)
-    @option("--icon-url", required_if_missing="url", help="Icon URL", cls=OptionRequiredIfMissing)
-    @option("--repo-url", required_if_missing="url", default=default_repo_url,
+    @option("--icon-url", metavar="URL", required_if_missing="url", help="Icon URL", cls=OptionRequiredIfMissing)
+    @option("--repo-url", metavar="URL", required_if_missing="url", default=default_repo_url,
             help="Repository URL. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing)
     @option("--repo-provider", required_if_missing="url",
             type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
             default=default_repo_provider,
             help="Repository provider. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing)
-    @option("--issues-url", required_if_missing="url", default=default_issues_url,
+    @option("--issues-url", metavar="URL", required_if_missing="url", default=default_issues_url,
             help="URL for reporting issues. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing)
-    @option("--commit", required=True, default=default_commit,
+    @option("--commit", metavar="COMMIT_ID", required=True, default=default_commit,
             help="Commit ID to upload. Will be inferred from current repo if possible.")
-    @option("--download-url", required_if_missing="url", default=default_download_url,
+    @option("--download-url", metavar="URL", required_if_missing="url", default=default_download_url,
             help="Download URL for asset's main ZIP. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing)
     @option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
             help="If true, all Markdown links will be converted to plain URLs. "
@@ -141,9 +152,20 @@ def shared_options(cmd):
             "If false, the original syntax, as used in the source Markdown file, will be preserved. "
             "Does not affect processing links to images and videos.")
     @option("--preserve-html/--no-preserve-html", default=False, show_default=True,
-            help="If true, raw HTML fragments in Markdown will be left as-is. Otherwise they will be omitted from the output.")
-    @option("--save/--no-save", default=True, show_default=True, prompt="Save these answers as defaults?",
-            help="If true, config will be saved as gdasset.toml in the project root.")
+            help="If true, raw HTML fragments in Markdown will be left as-is. "
+            "Otherwise they will be omitted from the output.")
+    @option("--assume-yes/--confirm", "-Y", "no_prompt",
+            default=False, show_default=True, is_eager=True,
+            help="Whether to confirm inferred default values interactively. "
+            "Values passed in on the command line are always taken as-is and not confirmed.")
+    @option("--quiet/--verbose", "-q", default=False, show_default=True,
+            help="If quiet, preview will not be printed.")
+    @option("--dry-run/--do-it", "-n", default=False, show_default=True,
+            help="In dry run, assets will not actually be uploaded or updated.")
+    @option("--save/--no-save", default=True, show_default=True, prompt="Save your answers as defaults?",
+            help="If true, config will be saved as gdasset.toml in the project root. "
+            "Only explicitly provided values (either on command line or interactively) will be saved, "
+            "inferred defaults will be skipped.")
     @click.argument("root", default=".", is_eager=True, callback=process_root)
     @click.pass_context
     @wraps(cmd)
@@ -177,9 +199,56 @@ merged with another dict to provide missing values (this is the case for updates
         "previews": previews,
     }
 
+@click.pass_context
+def save_cfg(ctx, cfg):
+    cfg.save(exclude={param for param in ctx.params
+                      if is_default_param(ctx, param)})
+
+def maybe_print(cfg, msg, *args, pager=False, **kwargs):
+    if cfg.quiet:
+        return
+    if pager:
+        click.echo_via_pager(msg, *args, **kwargs)
+    else:
+        click.echo(msg, *args, **kwargs)
+
+def summarise_payload(cfg, payload):
+    with StringIO() as buf:
+        sep = "=" * terminal_width()
+        minisep = "-" * terminal_width()
+        def p(*args, **kwargs):
+            print(*args, **kwargs, file=buf)
+
+        p(sep)
+        p(payload["title"])
+        p("Version:", payload["version_string"])
+        p(minisep)
+        for line in payload["description"].splitlines():
+            p(line)
+        p(minisep)
+        previews = [(p["type"].capitalize(), "<deleted>" if p["operation"] == "delete" else p["link"])
+                    for p in payload["previews"]]
+        if previews:
+            p("Previews:")
+            for type, link in previews:
+                p(f"  {type}: {link}")
+        p(sep)
+        maybe_print(cfg, buf.getvalue(), pager=not cfg.no_prompt)
+
+def upload_or_update(cfg, previous_payload):
+    payload = rest_api.merge_asset_payload(get_asset_payload(cfg), previous_payload)
+    summarise_payload(cfg, payload)
+    confirmation = cfg.no_prompt or cfg.dry_run or click.confirm(
+        "Proceed with the update?" if previous_payload else "Proceed with the upload?"
+    )
+    if cfg.dry_run:
+        maybe_print(cfg, "DRY RUN: no changes were made")
+        return
+
+SHARED_PRIORITY_LIST = ["root", "readme", "no_prompt", "quiet"]
 
 class UploadCommand(PriorityProcessingCommand):
-    PRIORITY_LIST = ["root", "plugin", "repo_url"]
+    PRIORITY_LIST = SHARED_PRIORITY_LIST + ["plugin", "repo_url"]
 
 @shared_options
 @cli.command(epilog=CMD_EPILOGUE, cls=UploadCommand)
@@ -191,27 +260,23 @@ ROOT should be the root of the project, meaning a directory containing
 the file 'gdasset.toml', or a VCS repository (currently, only Git is
 supported). If not specified, it will be determined automatically,
 starting at the current directory."""
-    cfg = ctx.obj
-    description, previews = get_asset_description(cfg)
-    print(description)
-    from pprint import pp
-    pp(cfg.commit)
+    upload_or_update(cfg, {})
     if save:
-        excluded = {param for param in ctx.params
-                          if is_default_param(ctx, param)}
-        cfg.save(exclude={param for param in ctx.params
-                          if is_default_param(ctx, param)})
-
+        save_cfg(cfg)
 
 def process_update_url(ctx, _, url):
     if url is not None:
-        return rest_api.get_asset_info(url)
+        payload = rest_api.get_asset_info(url)
+        ctx.obj = rest_api.update_cfg_from_payload(ctx.obj, payload)
+        # Explicit config file should take priority over existing asset URL
+        ctx.obj.try_load()
+        return payload
     return {}
 
 class UpdateCommand(PriorityProcessingCommand):
-    PRIORITY_LIST = ["root", "url"]
+    PRIORITY_LIST = SHARED_PRIORITY_LIST + ["url"]
 
-@cli.command(cls=UpdateCommand)
+@cli.command(epilog=CMD_EPILOGUE, cls=UpdateCommand)
 @click.argument("previous_payload", metavar="URL", required=True, callback=process_update_url)
 @shared_options
 @click.pass_obj
@@ -220,8 +285,9 @@ def update(cfg, previous_payload, save):
 
 ROOT has the same meaning as for 'upload'. URL should either be the full URL to
 an asset in the library, or its ID (such as '3133'), which will be looked up."""
-    from pprint import pp
-    pp(rest_api.merge_asset_payload(get_asset_payload(cfg), previous_payload))
+    upload_or_update(cfg, previous_payload)
+    if save:
+        save_cfg(cfg)
 
 @cli.command()
 @click.argument("username", required=True)
