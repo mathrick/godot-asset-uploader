@@ -12,7 +12,7 @@ from .errors import *
 from .markdown import get_asset_description
 from .util import (OptionRequiredIfMissing, DynamicPromptOption, PriorityProcessingCommand,
                    readable_param_name, is_default_param,
-                   terminal_width)
+                   terminal_width, debug_on_error)
 
 CMD_EPILOGUE = """Most parameters can be inferred from the project repository,
 README.md, plugin.cfg, and the existing library asset (when performing
@@ -307,6 +307,8 @@ def safe_cli():
         cli()
     except GdAssetError as e:
         die(str(e))
+    except Exception as e:
+        debug_on_error()
 
 if __name__ == "__main__":
     cli()

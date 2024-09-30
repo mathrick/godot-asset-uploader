@@ -1,9 +1,11 @@
 import email
 from enum import Enum
 from urllib.parse import urlparse, parse_qs
+import os
 from pathlib import Path
 import typing as t
 import shutil
+import sys, pdb, traceback
 
 import click
 from click.core import ParameterSource
@@ -62,6 +64,17 @@ def is_youtube_link(href):
 
 def terminal_width():
     return shutil.get_terminal_size().columns
+
+def debug_on_error():
+    # copied from pdbpp.xpm(), to provide a portable fallback in case pdbpp is
+    # not present
+    if (debug := os.getenv("DEBUG")) and debug.lower() not in ["0", "no"]:
+        print(traceback.format_exc())
+        pdb.post_mortem(sys.exc_info()[2])
+    else:
+        # NB: Turns out this is legal, as long as an exception is being handled,
+        # it doesn't need to be lexically visible
+        raise
 
 def unexpanduser(path):
     path = Path(path)
