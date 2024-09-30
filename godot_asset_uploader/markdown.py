@@ -225,7 +225,7 @@ def get_asset_description(cfg: config.Config):
     previews = []
 
     def process_image(token):
-        previews.append({"type": "image", "href": token.src})
+        previews.append({"type": "image", "link": token.src})
 
     def process_link(token):
         print("got link", token.target)
@@ -233,10 +233,10 @@ def get_asset_description(cfg: config.Config):
         if not is_interesting_link(token.target):
             pass
         elif (href := normalise_video_link(token.target)):
-            previews.append({"type": "video", "href": href})
+            previews.append({"type": "video", "link": href})
             return None
         elif is_image_link(token.target):
-            previews.append({"type": "image", "href": token.target})
+            previews.append({"type": "image", "link": token.target})
             return None
         # All links will be converted to autolink syntax, since the asset
         # library doesn't support any form of markup whatsoever

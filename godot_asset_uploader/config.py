@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field, fields, MISSING, asdict, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, ClassVar
 
@@ -36,32 +37,41 @@ class Config:
     repo_url: Optional[str] = None
     repo_provider: Optional[str] = None
     issues_url: Optional[str] = None
+    download_url: Optional[str] = None
     commit: Optional[str] = None
 
     unwrap_links: bool = True
     preserve_html: bool = False
 
-    # These fiels should not be saved
-    VOLATILE: ClassVar = ["commit", "version"]
+    previous_payload: Optional[dict] = None
+
+    # These fields should not be saved by save()
+    VOLATILE: ClassVar = ["version", "commit", "previous_payload"]
 
     def __post_init__(self):
         self._parsed_plugin = None
         self.root = Path(self.root).absolute()
         path_fields = [f for f in fields(self)
-                      if is_typed_as(f.type, Path) and f.name != "root"]
+                       if is_typed_as(f.type, Path) and f.name != "root"]
         for field in path_fields:
             val = getattr(self, field.name, None)
             if val:
                 setattr(self, field.name, self.root / val)
             val = getattr(self, field.name, None)
-            # This means the field is required
-            if field.default is MISSING and not (val and val.exists()):
-                raise GdAssetError(f"{field.name.capitalize()} file '{val}' not found")
 
         if self.version is None:
             self.version = self.get_plugin_key("version")
         if self.title is None:
             self.title = self.get_plugin_key("name")
+
+    def validate(self):
+        path_fields = [f for f in fields(self)
+                       if is_typed_as(f.type, Path) and f.name != "root"]
+        for field in path_fields:
+            val = getattr(self, field.name, None)
+            # This means the field is required
+            if field.default is MISSING and not (val and val.exists()):
+                raise GdAssetError(f"{field.name.capitalize()} file '{val}' not found")
 
     def get_plugin_key(self, key):
         if self._parsed_plugin is None and self.plugin:
@@ -76,7 +86,7 @@ class Config:
             except KeyError as e:
                 raise GdAssetError(f"Could not read {self.plugin.relative_to(self.root)}: Key {e.args[0]} does not exist.")
 
-    def save(self, path=None):
+    def save(self, path=None, exclude=None):
         "Save config as a TOML file under PATH. If PATH is not absolute, it will be relative to self.root"
         path = self.root / (path or CONFIG_FILE_NAME)
         out = tomlkit.toml_file.TOMLFile(path)
@@ -85,7 +95,7 @@ class Config:
             doc.add(tomlkit.comment(line))
         table = tomlkit.table()
         table.update({k: v for k, v in asdict(self).items()
-                      if k not in self.VOLATILE})
+                      if k not in self.VOLATILE and k not in (exclude or set())})
         doc["gdasset"] = table
         out.write(doc)
 
@@ -97,6 +107,15 @@ class Config:
                 return replace(self, **toml.get("gdasset").unwrap())
         except FileNotFoundError:
             return self
+
+    @classmethod
+    @lru_cache()
+    def fields(cls):
+        return {field.name: field for field in fields(cls)}
+
+    @classmethod
+    def is_required(cls, field_name):
+        return cls.fields()[field_name].default is MISSING
 
 def has_config_file(path):
     return (Path(path) / CONFIG_FILE_NAME).exists()

@@ -104,9 +104,9 @@ def dispatch_vcs(mapping, error_detail, docstring=None):
     return dispatch
 
 def dispatch_url(guessers, docstring=None):
-    def dispatch(url):
+    def dispatch(url, *args,**kwargs):
         for guesser in guessers:
-            if (cand := guesser(url)):
+            if (cand := guesser(url, *args, **kwargs)):
                 return cand
         return None
 
@@ -141,13 +141,29 @@ guess_repo_provider = dispatch_url([guess_git_repo_provider])
 def guess_git_issues_url(url):
     "Try to guess the issues URL based on the remote repo URL"
     provider = guess_git_repo_provider(url)
-    if provider in [RepoProvider.GITHUB, RepoProvider.GITHUB, RepoProvider.BITBUCKET]:
+    if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB, RepoProvider.BITBUCKET]:
         # Can't use urljoin because it's very sensitive to the trailing slash
         parsed = urlparse(url)
         return parsed._replace(path=str(Path(parsed.path) / "issues")).geturl()
     return None
 
 guess_issues_url = dispatch_url([guess_git_issues_url])
+
+def guess_git_download_url(url, commit):
+    "Try to guess the download URL based on the remote repo URL"
+    provider = guess_git_repo_provider(url)
+    parsed = urlparse(url)
+    path = Path(parsed.path)
+    if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB]:
+        path = path / "archive" / f"{commit}.zip"
+    elif provider == RepoProvider.BITBUCKET:
+        path = path / "get" / f"{commit}.zip"
+    else:
+        return None
+
+    return parsed._replace(path=str(path)).geturl()
+
+guess_download_url = dispatch_url([guess_git_download_url])
 
 def guess_git_commit(root):
     with git.open_repo_closing(root) as repo:

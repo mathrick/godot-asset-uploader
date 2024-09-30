@@ -5,10 +5,10 @@ from pathlib import Path
 import typing as t
 
 import click
+from click.core import ParameterSource
 
 class StrEnum(str, Enum):
     pass
-
 
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
 IMAGE_EXTS = (".jpg", ".png", ".webp", ".gif")
@@ -89,6 +89,15 @@ such as Optional[Dict[str,int]]"""
 
     return issubclass(x, tuple([get_base_type(T) for T in ensure_tuple(spec)]))
 
+def readable_param_name(param):
+    prefix = "" if param.param_type_name == "argument" else "--"
+    return f"'{prefix}{param.human_readable_name}'"
+
+def is_default_param(ctx, param):
+    return ctx.get_parameter_source(param) in [
+        ParameterSource.DEFAULT,
+        ParameterSource.DEFAULT_MAP,
+    ]
 
 class OptionRequiredIfMissing(click.Option):
     """Dependent option which is required if the context does not have
@@ -109,8 +118,7 @@ specified option(s) set"""
         required = not any(ctx.params.get(opt) for opt in self._options)
         dep_value = super().process_value(ctx, value)
         if required and dep_value is None:
-            opt_names = [f"'{prefix}{p.human_readable_name}'" for p in ctx.command.params
-                         for prefix in ["" if p.param_type_name == "argument" else "--"]
+            opt_names = [readable_param_name(p) for p in ctx.command.params
                          if p.name in self._options]
             # opt_names might be empty, e.g. if the only option is 'url' and
             # it's not taken by the currently processed command
@@ -121,14 +129,17 @@ specified option(s) set"""
 
 class PriorityOptionParser(click.OptionParser):
     def __init__(self, ctx, priority_list=None):
-        self.priority_list = priority_list or []
+        # We want a fully-defined and static order of processing, as the options
+        # are declared, unless modified by the priority_list
+        self.processing_order = priority_list or []
+        self.processing_order += [p.name for p in ctx.command.params if p.name not in priority_list]
         super().__init__(ctx)
 
     def parse_args(self, args):
         opts, args, order = super().parse_args(args)
         priority_order = sorted(
-            [opt for opt in order if opt.name in self.priority_list],
-            key=lambda opt: self.priority_list.index(opt.name)
+            [opt for opt in order if opt.name in self.processing_order],
+            key=lambda opt: self.processing_order.index(opt.name)
         )
         return (opts, args, priority_order + [opt for opt in order if opt not in priority_order])
 
