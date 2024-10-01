@@ -104,6 +104,10 @@ class Directive(BlockToken):
         return buf
 
 
+class DebugRenderer(AstRenderer):
+    def __init__(self):
+        super().__init__(Directive, ExtendedAutoLink)
+
 class Renderer(MarkdownRenderer):
     def __init__(self, config,
                  image_callback=None, link_callback=None, html_callback=None,
@@ -250,12 +254,11 @@ def get_asset_description(cfg: config.Config):
     def process_html(token):
         return True if cfg.preserve_html else None
 
-    with open(cfg.readme) as input:
-        with Renderer(cfg,
-                      image_callback=process_image,
-                      link_callback=process_link,
-                      html_callback=process_html,
-                      max_line_length=None) as renderer:
-            description = renderer.render(Document(input))
+    with Renderer(cfg,
+                  image_callback=process_image,
+                  link_callback=process_link,
+                  html_callback=process_html,
+                  max_line_length=None) as renderer:
+        description = renderer.render(Document(cfg.readme.read_text()))
 
     return (description, previews)
