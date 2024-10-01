@@ -155,7 +155,7 @@ images, video, and HTML fragments"""
                         return getattr(super(), method_name)(token, **kwargs)
                 elif result is not None:
                     return result
-                return [] if is_block else ""
+                return []
             return func
 
         return do_delegate
@@ -198,7 +198,9 @@ images, video, and HTML fragments"""
                 else:
                     raise GdAssetError("Changelog file {config.changelog} does not contain a list")
 
-                to_render = [Paragraph([item.attrs["heading"] + ":"])] if "heading" in item.attrs else []
+                par = Paragraph([item.attrs["heading"] + ":"])
+                par.line_number = token.line_number
+                to_render = [par] if "heading" in item.attrs else []
 
                 if item.value:
                     changelog.children = changelog.children[:int(item.value)]
@@ -206,7 +208,7 @@ images, video, and HTML fragments"""
                 to_render.append(changelog)
                 # Needed to set child.parent properly
                 token.children = to_render
-                return ["".join([self.render(x) for x in to_render])]
+                return self.blocks_to_lines(to_render, max_line_length=max_line_length)
         if item.tag == "gdasset":
             if not item.value or item.value not in ("include", "exclude"):
                 raise GdAssetError(f"The 'gdasset' directive must have a value of 'include' or 'exclude' on line {token.line_number}")

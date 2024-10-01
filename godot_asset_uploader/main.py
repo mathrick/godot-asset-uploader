@@ -223,15 +223,21 @@ def summarise_payload(cfg, payload):
         p(payload["title"])
         p("Version:", payload["version_string"])
         p(minisep)
+        p()
         for line in payload["description"].splitlines():
             p(line)
+        p()
         p(minisep)
-        previews = [(p["type"].capitalize(), "<deleted>" if p["operation"] == "delete" else p["link"])
+        ops = {
+            "delete": " (deleted)",
+            "insert": " (new)",
+        }
+        previews = [(p["type"].capitalize(), p["link"], ops.get(p["operation"], ""))
                     for p in payload["previews"]]
         if previews:
             p("Previews:")
-            for type, link in previews:
-                p(f"  {type}: {link}")
+            for type, link, op in previews:
+                p(f"  {type}{op}: {link}")
         p(sep)
         maybe_print(cfg, buf.getvalue(), pager=not cfg.no_prompt)
 
