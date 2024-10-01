@@ -5,7 +5,7 @@ import pytest
 
 from godot_asset_uploader.util import (
     VIDEO_EXTS,
-    is_image_link, normalise_video_link
+    is_interesting_link, is_image_link, normalise_video_link,
 )
 
 YOUTUBE_CANONICAL_URL = "https://youtube.com/watch?v={id}"
@@ -254,6 +254,22 @@ DOMAINS = [
     for tld in [".com", ".org", ".co.uk", ".pl", ".xyz"]
 ]
 QUERIES = ["", "?foo=bar", "?foo=bar&baz=quux"]
+
+
+# NB: is_interesting_link() doesn't care what the link is to, just
+# that it's a regular http(s) link
+@pytest.mark.parametrize("path", IMAGE_FILE_PATHS + VIDEO_FILE_PATHS + OTHER_FILE_PATHS)
+def test_is_interesting_link(path):
+    for scheme, domain, query in random_url_parts():
+        url = f"{scheme}://{domain}/{path}{query}"
+        if scheme != "ftp":
+            assert is_interesting_link(url)
+        else:
+            assert not is_interesting_link(url)
+    for domain in DOMAINS:
+        email = f"{alnum_string(10)}@domain"
+        assert not is_interesting_link(email)
+        assert not is_interesting_link(f"mailto:{email}")
 
 @pytest.mark.parametrize("path", IMAGE_FILE_PATHS)
 def test_is_image_link(path):
