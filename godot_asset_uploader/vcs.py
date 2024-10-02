@@ -19,6 +19,10 @@ def has_git_repo(path):
     except NotGitRepository:
         return False
 
+def dir_and_parents(path):
+    path = Path(path)
+    return chain([path] if path.is_dir() else [], path.parents)
+
 def get_project_root(path):
     """Find the closest project root which contains the given PATH. The
 root might be the PATH itself, or a parent directory.
@@ -27,10 +31,26 @@ A "project root" is defined as repository in a supported format
 (currently, that means only Git), OR a directory containing
 'gdasset.ini'. If multiple candidates for the root exist, the closest
 one (ie. fewest levels up the directory tree) will be picked."""
-    path = Path(path)
-    for dir in chain([path] if path.is_dir() else [], path.parents):
+    for dir in dir_and_parents(path):
         if config.has_config_file(dir) or has_git_repo(dir):
             return dir
+
+def guess_vcs_type(path):
+    """Return a tuple of (vcs_type: str, root: Path) if a known VCS has
+been detected, starting at PATH and going up the parent chain"""
+    path = Path(path)
+    for dir in dir_and_parents(path):
+        if has_git_repo(path):
+            return ("git", path)
+    return (None, None)
+
+def get_repo(path):
+    """Open a repo containing PATH, traversing up the tree as needed, and using
+whatever VCS is closest (currently only Git is supported)."""
+    vcs, root = guess_vcs_type(path)
+    if vcs == "git":
+        return GitRepo(root)
+    return None
 
 def git_get_branch_remote(repo):
     """Like dulwich.porcelain.get_branch_remote(), but tries harder to figure out what
@@ -77,15 +97,6 @@ def git_get_remote_repo(repo, remote_location=None):
         remote_name = None
 
     return (remote_name, encoded_location.decode())
-
-def guess_vcs_type(path):
-    """Return a tuple of (vcs_type: str, root: Path) if a known VCS has
-been detected, starting at PATH and going up the parent chain"""
-    path = Path(path)
-    while path:
-        if has_git_repo(path):
-            return ("git", path)
-    return (None, None)
 
 def dispatch_vcs(mapping, error_detail, docstring=None):
     def dispatch(root, *args, **kwargs):

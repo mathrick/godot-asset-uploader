@@ -1,0 +1,19 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = git@github.com:ihopethisisnotarealusername/dummy-repo.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[remote]
+	pushDefault = origin
+[remote "origin-https"]
+	url = https://github.com/ihopethisisnotarealusername/dummy-repo
+	fetch = +refs/heads/*:refs/remotes/origin-https/*
+[branch "branch-https"]
+	pushRemote = origin-https
+	remote = origin-https
+	merge = refs/heads/branch-https
+[branch "push-remote-only"]
+	pushRemote = origin-https
