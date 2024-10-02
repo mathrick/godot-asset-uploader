@@ -1,0 +1,26 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = git@bitbucket.org:ihopethisisnotarealusername/dummy-repo.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[remote]
+	pushDefault = origin
+[remote "origin-https"]
+	url = https://ihopethisisnotarealusername@bitbucket.org/ihopethisisnotarealusername/dummy-repo
+	fetch = +refs/heads/*:refs/remotes/origin-https/*
+[remote "origin-https-no-username"]
+	url = https://bitbucket.org/ihopethisisnotarealusername/dummy-repo
+	fetch = +refs/heads/*:refs/remotes/origin-https/*
+[branch "branch-https"]
+	pushRemote = origin-https
+	remote = origin-https
+	merge = refs/heads/branch-https
+[branch "branch-https-no-username"]
+	pushRemote = origin-https-no-username
+	remote = origin-https-no-username
+	merge = refs/heads/branch-https-no-username
+[branch "push-remote-only"]
+	pushRemote = origin-https
