@@ -9,8 +9,15 @@ readme = "README.md"
 [tool.poetry.scripts]
 gdasset = "godot_asset_uploader.main:safe_cli"
 
+[tool.poetry-pyinstaller-plugin]
+use-poetry-install = true
+
+[tool.poetry-pyinstaller-plugin.scripts]
+gdasset = { source = "pyinstaller-main.py", type = "onefile", bundle = false}
+
 [tool.poetry.dependencies]
-python = "^3.8"
+# <3.14 because of pyinstaller
+python = "^3.8,<3.14"
 mistletoe = "^1.4.0"
 click = "^8.1.7"
 dulwich = "^0.22.1"
@@ -22,6 +29,7 @@ giturlparse = "^0.12.0"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
 pytest-regressions = "^2.5.0"
+pyinstaller = "^6.10.0"
 
 [build-system]
 requires = ["poetry-core"]
