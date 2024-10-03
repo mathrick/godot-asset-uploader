@@ -5,7 +5,8 @@ from io import StringIO
 from pathlib import Path
 import sys
 
-import click
+import click, cloup
+from cloup.formatting import sep, HelpFormatter
 
 from . import vcs, config, rest_api
 from .errors import *
@@ -19,7 +20,15 @@ README.md, plugin.cfg, and the existing library asset (when performing
 an update). Missing information will be prompted for interactively,
 unless the '--assume-yes' or '-Y' flag was passed."""
 
-@click.group()
+CONTEXT_SETTINGS = cloup.Context.settings(
+    align_option_groups=True,
+    formatter_settings=HelpFormatter.settings(
+        col1_max_width=20,
+        row_sep=sep.RowSepIf(sep.multiline_rows_are_at_least(0.5)),
+    ),
+)
+
+@cloup.group(context_settings=CONTEXT_SETTINGS)
 def cli():
     """Automatically upload or update an asset in Godot Asset Library
 based on the project repository."""
@@ -58,11 +67,11 @@ def default_download_url(cfg):
 def default_commit(cfg):
     return vcs.guess_commit(cfg.root)
 
-def default_from_plugin(key):
+def default_from_plugin(key, cfg_key=None):
     "Get default value from config if present, or plugin.cfg otherwise"
     @click.pass_obj
     def default_value(cfg):
-        return getattr(cfg, key, cfg.get_plugin_key(key))
+        return getattr(cfg, cfg_key or key, cfg.get_plugin_key(key))
 
     return default_value
 
@@ -91,65 +100,82 @@ def option(*args, **kwargs):
     opt_class = kw.pop("cls", DynamicPromptOption)
     opt = opt_class(args, **kw)
     kw.setdefault("default", saved_default(opt.name))
-    return click.option(*args, **kw, cls=opt_class)
+    return cloup.option(*args, **kw, cls=opt_class)
 
 # IMPORTANT: this must be processed very early on, and by process_root(), since
 # it takes care of calling .try_load() to get any saved config values
-root_arg = click.argument("root", default=".", is_eager=True, callback=process_root)
+root_arg = cloup.argument(
+    "root", default=".", is_eager=True, callback=process_root,
+    help="Root of the project, meaning a directory containing the file 'gdasset.toml', "
+    "or a VCS repository (currently, only Git is supported). If not specified, it "
+    "will be determined automatically, starting at the current directory."
+)
 
 def shared_options(cmd):
-    @option("--readme", default="README.md", metavar="PATH",
-            show_default=True,
-            help="Location of README file, relative to project root")
-    @option("--changelog", default="CHANGELOG.md", metavar="PATH",
-            show_default=True,
-            help="Location of changelog file, relative to project root")
-    @option("--plugin", metavar="PATH", is_eager=True,
-            help="If specified, should be the path to a plugin.cfg file, "
-            "which will be used to auto-populate project info")
-    @option("--version", required_if_missing="plugin", default=preferred_from_plugin("version"),
-            help="Asset version. Required unless --plugin is provided", cls=OptionRequiredIfMissing)
-    @option("--godot-version", required_if_missing="url",
-            help="Minimum Godot version asset is compatible with. "
-            "Required unless update URL is provided", cls=OptionRequiredIfMissing)
-    @option("--licence", required_if_missing="url",
-            help="Asset's licence. Required unless update URL is provided", cls=OptionRequiredIfMissing)
-    @option("--title", required_if_missing=["plugin", "url"], default=default_from_plugin("name"),
-            help="Title / short description of the asset. "
-            "Required unless --plugin or update URL is provided", cls=OptionRequiredIfMissing)
-    @option("--repo-url", metavar="URL", required_if_missing="url", default=default_repo_url,
-            help="Repository URL. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing)
-    @option("--repo-provider", required_if_missing="url",
-            type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
-            default=default_repo_provider, callback=process_repo_provider,
-            help="Repository provider. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing)
-    @option("--issues-url", metavar="URL", required_if_missing="url", default=default_issues_url,
-            help="URL for reporting issues. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing)
-    @option("--commit", metavar="COMMIT_ID", required=True, default=default_commit,
-            help="Commit ID to upload. Will be inferred from current repo if possible.")
-    @option("--download-url", metavar="URL", required_if_missing="url", default=default_download_url,
-            help="Download URL for asset's main ZIP. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing)
-    @option("--icon-url", metavar="URL", required_if_missing="url", help="Icon URL", cls=OptionRequiredIfMissing)
-    @option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
-            help="If true, all Markdown links will be converted to plain URLs. "
-            "This is the default, since the asset library does not support any form of markup. "
-            "If false, the original syntax, as used in the source Markdown file, will be preserved. "
-            "Does not affect processing links to images and videos.")
-    @option("--preserve-html/--no-preserve-html", default=False, show_default=True,
-            help="If true, raw HTML fragments in Markdown will be left as-is. "
-            "Otherwise they will be omitted from the output.")
-    @option("--assume-yes/--confirm", "-Y", "no_prompt",
-            default=False, show_default=True, is_eager=True,
-            help="Whether to confirm inferred default values interactively. "
-            "Values passed in on the command line are always taken as-is and not confirmed.")
-    @option("--quiet/--verbose", "-q", default=False, show_default=True,
-            help="If quiet, preview will not be printed.")
-    @option("--dry-run/--do-it", "-n", default=False, show_default=True,
-            help="In dry run, assets will not actually be uploaded or updated.")
-    @option("--save/--no-save", default=True, show_default=True, prompt="Save your answers as defaults?",
-            help="If true, config will be saved as gdasset.toml in the project root. "
-            "Only explicitly provided values (either on command line or interactively) will be saved, "
-            "inferred defaults will be skipped.")
+    @cloup.option_group(
+        "Project discovery options",
+        option("--readme", default="README.md", metavar="PATH",
+               show_default=True,
+               help="Location of README file, relative to project root"),
+        option("--changelog", default="CHANGELOG.md", metavar="PATH",
+               show_default=True,
+               help="Location of changelog file, relative to project root"),
+        option("--plugin", metavar="PATH", is_eager=True,
+               help="If specified, should be the path to a plugin.cfg file, "
+               "which will be used to auto-populate project info"),
+    )
+    @cloup.option_group(
+        "Asset metadata inputs",
+        option("--title", required_if_missing=["plugin", "url"], default=default_from_plugin("name", "title"),
+               help="Title / short description of the asset. "
+               "Required unless --plugin or update URL is provided", cls=OptionRequiredIfMissing),
+        option("--version", required_if_missing="plugin", default=preferred_from_plugin("version"),
+               help="Asset version. Required unless --plugin is provided", cls=OptionRequiredIfMissing),
+        option("--godot-version", required_if_missing="url",
+               help="Minimum Godot version asset is compatible with. "
+               "Required unless update URL is provided", cls=OptionRequiredIfMissing),
+        option("--licence", required_if_missing="url",
+               help="Asset's licence. Required unless update URL is provided", cls=OptionRequiredIfMissing),
+    )
+    @cloup.option_group(
+        "Repository and download inputs",
+        option("--repo-url", metavar="URL", required_if_missing="url", default=default_repo_url,
+               help="Repository URL. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing),
+        option("--repo-provider", required_if_missing="url",
+               type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
+               default=default_repo_provider, callback=process_repo_provider,
+               help="Repository provider. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing),
+        option("--issues-url", metavar="URL", required_if_missing="url", default=default_issues_url,
+               help="URL for reporting issues. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing),
+        option("--commit", metavar="COMMIT_ID", required=True, default=default_commit,
+               help="Commit ID to upload. Will be inferred from current repo if possible."),
+        option("--download-url", metavar="URL", required_if_missing="url", default=default_download_url,
+               help="Download URL for asset's main ZIP. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing),
+        option("--icon-url", metavar="URL", required_if_missing="url", help="Icon URL", cls=OptionRequiredIfMissing),
+    )
+    @cloup.option_group(
+        "Behaviour flags",
+        option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
+               help="If true, all Markdown links will be converted to plain URLs. "
+               "This is the default, since the asset library does not support any form of markup. "
+               "If false, the original syntax, as used in the source Markdown file, will be preserved. "
+               "Does not affect processing links to images and videos."),
+        option("--preserve-html/--no-preserve-html", default=False, show_default=True,
+               help="If true, raw HTML fragments in Markdown will be left as-is. "
+               "Otherwise they will be omitted from the output."),
+        option("--assume-yes/--confirm", "-Y", "no_prompt",
+               default=False, show_default=True, is_eager=True,
+               help="Whether to confirm inferred default values interactively. "
+               "Values passed in on the command line are always taken as-is and not confirmed."),
+        option("--quiet/--verbose", "-q", default=False, show_default=True,
+               help="If quiet, preview will not be printed."),
+        option("--dry-run/--do-it", "-n", default=False, show_default=True,
+               help="In dry run, assets will not actually be uploaded or updated."),
+        option("--save/--no-save", default=True, show_default=True, prompt="Save your answers as defaults?",
+               help="If true, config will be saved as gdasset.toml in the project root. "
+               "Only explicitly provided values (either on command line or interactively) will be saved, "
+               "inferred defaults will be skipped."),
+    )
     @shared_auth_options
     @option("--token", default=saved_auth("token"), callback=process_auth,
             help="Token generated by an earlier login. Can be used instead of username and password.")
@@ -318,12 +344,7 @@ class UploadCommand(PriorityProcessingCommand):
 @shared_options
 @click.pass_context
 def upload(ctx, save, save_auth):
-    """Upload a new asset to the library.
-
-ROOT should be the root of the project, meaning a directory containing
-the file 'gdasset.toml', or a VCS repository (currently, only Git is
-supported). If not specified, it will be determined automatically,
-starting at the current directory."""
+    """Upload a new asset to the library"""
     ctx.invoke(update, previous_payload={})
 
 def process_update_url(ctx, _, url):
@@ -340,14 +361,12 @@ class UpdateCommand(PriorityProcessingCommand):
     PRIORITY_ADJUSTMENTS = SHARED_PRIORITY_ADJUSTMENTS
 
 @cli.command(epilog=CMD_EPILOGUE, cls=UpdateCommand)
-@click.argument("previous_payload", metavar="URL", required=True, callback=process_update_url)
+@cloup.argument("previous_payload", metavar="URL", required=True, callback=process_update_url,
+                help="Either the full URL to an asset in the library, or an ID (such as '3133'), which will be looked up")
 @shared_options
 @click.pass_context
 def update(ctx, previous_payload, save, save_auth):
-    """Update an existing asset in the library.
-
-ROOT has the same meaning as for 'upload'. URL should either be the full URL to
-an asset in the library, or its ID (such as '3133'), which will be looked up."""
+    """Update an existing asset in the library"""
     cfg = ctx.obj
     payload = rest_api.merge_asset_payload(get_asset_payload(cfg), previous_payload)
     summarise_payload(cfg, payload)
@@ -386,7 +405,7 @@ class LoginCommand(PriorityProcessingCommand):
 @root_arg
 @click.pass_obj
 def login(cfg, root, save_auth):
-    """Log into the asset library using the provided credentials.
+    """Log into the asset library using the provided credentials
 
 This is not required before using other commands, but can be used to save the generated token
 for future use."""

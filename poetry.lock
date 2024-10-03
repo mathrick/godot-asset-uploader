@@ -155,6 +155,21 @@ files = [
 colorama = {version = "*", markers = "platform_system == \"Windows\""}
 
 [[package]]
+name = "cloup"
+version = "3.0.5"
+description = "Adds features to Click: option groups, constraints, subcommand sections and help themes."
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "cloup-3.0.5-py2.py3-none-any.whl", hash = "sha256:bf122036066584eb0db113561167c29969cc015972b7b7ee03158d9bc7de87f8"},
+    {file = "cloup-3.0.5.tar.gz", hash = "sha256:c92b261c7bb7e13004930f3fb4b3edad8de2d1f12994dcddbe05bc21990443c5"},
+]
+
+[package.dependencies]
+click = ">=8.0,<9.0"
+typing-extensions = {version = "*", markers = "python_version <= \"3.8\""}
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 description = "Cross-platform colored terminal text."
@@ -810,6 +825,17 @@ files = [
 ]
 
 [[package]]
+name = "typing-extensions"
+version = "4.12.2"
+description = "Backported and Experimental Type Hints for Python 3.8+"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "typing_extensions-4.12.2-py3-none-any.whl", hash = "sha256:04e5ca0351e0f3f85c6853954072df659d0d13fac324d0072316b67d7794700d"},
+    {file = "typing_extensions-4.12.2.tar.gz", hash = "sha256:1a7ead55c7e559dd4dee8856e3a88b41225abfe1ce8df57b7c13915fe121ffb8"},
+]
+
+[[package]]
 name = "urllib3"
 version = "2.2.3"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
@@ -866,4 +892,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8,<3.14"
-content-hash = "40067876fb965e560d25b8861afce976e826b625b0756b972ccebbaa906d32b0"
+content-hash = "ceb4e933222fe5a750a8b31ed7e097ce13d7e22a84de0022a86b2ba05bc74c2c"

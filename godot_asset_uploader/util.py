@@ -8,7 +8,7 @@ import typing as t
 import shutil
 import sys, pdb, traceback
 
-import click
+import click, cloup
 from click.core import ParameterSource
 
 class StrEnum(str, Enum):
@@ -123,7 +123,7 @@ def is_default_param(ctx, param):
     ]
 
 
-class DynamicPromptOption(click.Option):
+class DynamicPromptOption(cloup.Option):
     "Allow disabling prompting through command-line switch"
     def prompt_for_value(self, ctx):
         assert self.prompt is not None
@@ -190,7 +190,7 @@ ensure the order is correct and preserved, no matter how the user invokes us"""
         return (opts, args, self.order)
 
 
-class PriorityProcessingCommand(click.Command):
+class PriorityProcessingCommand(cloup.Command):
     PRIORITY_LIST = []
     PRIORITY_ADJUSTMENTS = []
 
