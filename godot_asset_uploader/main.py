@@ -179,16 +179,35 @@ def saved_auth(field):
         return getattr(cfg.auth, field, None)
     return default
 
-def process_auth(ctx, option, value):
+def process_auth(ctx, param, value):
     ensure_auth()
-    return ctx.obj.auth.set(option.name, value)
+    return ctx.obj.auth.set(param.name, value)
 
+@click.pass_context
+def invalidate_token(ctx):
+    ctx.obj.auth.set("token", None, validate=False)
+    ctx.params["token"] = None
+
+def process_password(ctx, param, value):
+    value = process_auth(ctx, param, value)
+    if not is_default_param(ctx, param):
+        # We need to invalidate the token if any password is passed in
+        invalidate_token()
+    return value
+
+def process_username(ctx, param, value):
+    previous = ctx.obj.auth.username
+    value = process_auth(ctx, param, value)
+    if previous and previous != value:
+        # We need to invalidate the token if the username has changed
+        invalidate_token()
+    return value
 
 class PasswordOption(OptionRequiredIfMissing):
     """--password needs special processing, since we shouldn't prompt for it if a
 token has been received from any source"""
     def prompt_for_value(self, ctx):
-        if ctx.params.get("token"):
+        if ctx.obj.auth.token:
             return None
         else:
             return super().prompt_for_value(ctx)
@@ -330,7 +349,6 @@ def update(ctx, previous_payload, save, save_auth):
 ROOT has the same meaning as for 'upload'. URL should either be the full URL to
 an asset in the library, or its ID (such as '3133'), which will be looked up."""
     cfg = ctx.obj
-    rest_api.login_and_update_token(cfg)
     payload = rest_api.merge_asset_payload(get_asset_payload(cfg), previous_payload)
     summarise_payload(cfg, payload)
     confirmation = cfg.no_prompt or cfg.dry_run or click.confirm(
@@ -338,20 +356,24 @@ an asset in the library, or its ID (such as '3133'), which will be looked up."""
     )
     if save:
         save_cfg(cfg)
+
     if cfg.dry_run:
         maybe_print("DRY RUN: no changes were made")
-    else:
+    elif confirmation:
+        rest_api.login_and_update_token(cfg)
         for retry in range(1, -1, -1):
             try:
                 rest_api.upload_or_update_asset(cfg, payload)
             except HTTPRequestError as exc:
                 if retry and (not cfg.no_prompt or cfg.auth.password):
                     printerr(exc)
+                    invalidate_token()
                     password_param = [p for p in ctx.command.params if p.name == "password"][0]
                     cfg.auth.password = cfg.auth.password or password_param.prompt_for_value(ctx)
                     rest_api.login_and_update_token(cfg, force=True)
                     continue
                 raise
+
     if save_auth:
         save_cfg(cfg.auth)
 

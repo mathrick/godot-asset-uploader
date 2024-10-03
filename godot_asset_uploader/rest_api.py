@@ -80,7 +80,7 @@ def api_request(meth, *url, params=None, headers=None):
         except requests.JSONDecodeError:
             detail = ""
         raise HTTPRequestError(f"'{resp.request.method}' API request to '{'/'.join(url)}' failed with code {resp.status_code}{detail}")
-    return req.json()
+    return resp.json()
 
 def GET(*url, params=None, headers=None):
     return api_request("get", *url, params=params, headers=headers)
