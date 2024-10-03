@@ -42,10 +42,9 @@ class SaveLoadMixin:
         except FileNotFoundError:
             return self
 
-
 @dataclass
 class Auth(SaveLoadMixin):
-    VOLATILE: ClassVar = ["root"]
+    VOLATILE: ClassVar = ["root", "password"]
     FILE_NAME: ClassVar = "gdasset-auth.toml"
     FILE_COMMENT: ClassVar = """DO NOT COMMIT THIS FILE IN YOUR VERSION CONTROL SYSTEM
 

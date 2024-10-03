@@ -160,27 +160,40 @@ specified option(s) set"""
 
 
 class PriorityOptionParser(click.OptionParser):
-    def __init__(self, ctx, priority_list=None):
-        # We want a fully-defined and static order of processing, as the options
-        # are declared, unless modified by the priority_list
-        self.processing_order = priority_list or []
-        self.processing_order += [p.name for p in ctx.command.params if p.name not in priority_list]
+    """Order of proessing and grabbing defaults for options is very important for
+the UI, since a lot of things depend on previous values. This allows us to
+ensure the order is correct and preserved, no matter how the user invokes us"""
+    def __init__(self, ctx, priority_list, priority_adjustments=None):
+        self.order = list(ctx.command.params)
+        all_params = {p.name: p for p in self.order}
+        priority_adjustments = [[all_params[name] for name in adjustment if name in all_params]
+                                for adjustment in priority_adjustments or []]
+        for adjustment in priority_adjustments:
+            # We're trying to nudge the order just enough to satisfy the
+            # ordering in the current adjustment without affecting other
+            # elements. To do this, we create the list of *current* indexes of
+            # the relevant params in ctx.params, then sort it. Then we insert
+            # each param in turn in the given spot in the list
+            indexes = [self.order.index(p) for p in adjustment]
+            for param, slot in zip(adjustment, sorted(indexes)):
+                self.order[slot] = param
+        # Finally, things in priority list just go into the front unconditionally
+        self.order = [
+            all_params[param] for param in priority_list if param in all_params
+        ] + [p for p in self.order if p.name not in priority_list]
         super().__init__(ctx)
 
     def parse_args(self, args):
         opts, args, order = super().parse_args(args)
-        priority_order = sorted(
-            [opt for opt in order if opt.name in self.processing_order],
-            key=lambda opt: self.processing_order.index(opt.name)
-        )
-        return (opts, args, priority_order + [opt for opt in order if opt not in priority_order])
+        return (opts, args, self.order)
 
 
 class PriorityProcessingCommand(click.Command):
     PRIORITY_LIST = []
+    PRIORITY_ADJUSTMENTS = []
 
     def make_parser(self, ctx):
-        parser = PriorityOptionParser(ctx, self.PRIORITY_LIST)
+        parser = PriorityOptionParser(ctx, self.PRIORITY_LIST, self.PRIORITY_ADJUSTMENTS)
         for param in self.get_params(ctx):
             param.add_to_parser(parser, ctx)
         return parser
