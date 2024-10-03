@@ -3,6 +3,7 @@ from itertools import dropwhile, zip_longest
 from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlparse
 
+import dirtyjson
 from validator_collection.checkers import is_integer, is_url
 import requests
 
@@ -45,6 +46,11 @@ class RepoProvider(StrEnum):
                 return member
         return None
 
+def resp_json(resp):
+    """Like requests.response.json(), but uses dirtyjson to be more
+resilient to PHP's bullshit that we get back"""
+    return dirtyjson.loads(resp.content)
+
 def guess_asset_id(id_or_url):
     "Attempt to guess asset id from what might be an existing URL"
     if is_integer(id_or_url):
@@ -75,12 +81,15 @@ def api_request(meth, *url, params=None, headers=None):
         resp.raise_for_status()
     except requests.HTTPError:
         try:
-            detail = resp.json().get("error", "")
+            detail = resp_json(resp).get("error", "")
             detail = detail and f": {detail}"
-        except requests.JSONDecodeError:
+        except dirtyjson.error.Error:
             detail = ""
         raise HTTPRequestError(f"'{resp.request.method}' API request to '{'/'.join(url)}' failed with code {resp.status_code}{detail}")
-    return resp.json()
+    try:
+        return resp_json(resp)
+    except dirtyjson.error.Error:
+        return {}
 
 def GET(*url, params=None, headers=None):
     return api_request("get", *url, params=params, headers=headers)
