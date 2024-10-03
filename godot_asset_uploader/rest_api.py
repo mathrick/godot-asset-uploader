@@ -70,16 +70,16 @@ def get_library_url(*path):
 def api_request(meth, *url, params=None, headers=None):
     headers = headers or {}
     headers.update({'Accept': 'application/json'})
-    req = requests.request(meth, get_library_url(*url), headers=headers, data=params)
+    resp = requests.request(meth, get_library_url(*url), headers=headers, data=params)
     try:
-        req.raise_for_status()
+        resp.raise_for_status()
     except requests.HTTPError:
         try:
-            detail = req.json().get("error", "")
+            detail = resp.json().get("error", "")
             detail = detail and f": {detail}"
         except requests.JSONDecodeError:
             detail = ""
-        raise GdAssetError(f"API request to '{'/'.join(url)}' failed with code {req.status_code}{detail}")
+        raise HTTPRequestError(f"'{resp.request.method}' API request to '{'/'.join(url)}' failed with code {resp.status_code}{detail}")
     return req.json()
 
 def GET(*url, params=None, headers=None):
@@ -119,6 +119,11 @@ def merge_asset_payload(new, old=None):
                            if p_new != p_old]
     return payload
 
+def upload_or_update_asset(cfg, json, retries=1):
+    url = ("asset", json["asset_id"]) if "asset_id" in json else ("asset",)
+    json["token"] = cfg.auth.token
+    POST(*url, params=json)
+
 def update_cfg_from_payload(cfg, json):
     remap = {
         "version_string": "version",
@@ -133,3 +138,9 @@ def update_cfg_from_payload(cfg, json):
 def login(user, passwd):
     json = POST("login", params={"username": user, "password": passwd})
     return json
+
+def login_and_update_token(cfg, force=False):
+    if cfg.auth.token and not force:
+        return
+    json = login(cfg.auth.username, cfg.auth.password)
+    cfg.auth.token = json["token"]

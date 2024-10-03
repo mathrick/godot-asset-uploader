@@ -323,33 +323,37 @@ class UpdateCommand(PriorityProcessingCommand):
 @cli.command(epilog=CMD_EPILOGUE, cls=UpdateCommand)
 @click.argument("previous_payload", metavar="URL", required=True, callback=process_update_url)
 @shared_options
-@click.pass_obj
-def update(cfg, previous_payload, save, save_auth):
+@click.pass_context
+def update(ctx, previous_payload, save, save_auth):
     """Update an existing asset in the library.
 
 ROOT has the same meaning as for 'upload'. URL should either be the full URL to
 an asset in the library, or its ID (such as '3133'), which will be looked up."""
+    cfg = ctx.obj
+    rest_api.login_and_update_token(cfg)
     payload = rest_api.merge_asset_payload(get_asset_payload(cfg), previous_payload)
     summarise_payload(cfg, payload)
     confirmation = cfg.no_prompt or cfg.dry_run or click.confirm(
         "Proceed with the update?" if previous_payload else "Proceed with the upload?"
     )
-    if cfg.dry_run:
-        maybe_print(cfg, "DRY RUN: no changes were made")
-    else:
-        pass
-    login_and_update_token()
     if save:
         save_cfg(cfg)
+    if cfg.dry_run:
+        maybe_print("DRY RUN: no changes were made")
+    else:
+        for retry in range(1, -1, -1):
+            try:
+                rest_api.upload_or_update_asset(cfg, payload)
+            except HTTPRequestError as exc:
+                if retry and (not cfg.no_prompt or cfg.auth.password):
+                    printerr(exc)
+                    password_param = [p for p in ctx.command.params if p.name == "password"][0]
+                    cfg.auth.password = cfg.auth.password or password_param.prompt_for_value(ctx)
+                    rest_api.login_and_update_token(cfg, force=True)
+                    continue
+                raise
     if save_auth:
         save_cfg(cfg.auth)
-
-@click.pass_obj
-def login_and_update_token(cfg):
-    if cfg.auth.token:
-        return
-    json = rest_api.login(cfg.auth.username, cfg.auth.password)
-    cfg.auth.token = json["token"]
 
 class LoginCommand(PriorityProcessingCommand):
     PRIORITY_LIST = SHARED_PRIORITY_LIST + ["url"]
