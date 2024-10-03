@@ -1,6 +1,9 @@
 class GdAssetError(Exception):
     pass
 
+class HTTPRequestError(GdAssetError):
+    pass
+
 class BadRepoError(GdAssetError):
     def __init__(repo_type, path, details):
         self.repo_type = repo_type

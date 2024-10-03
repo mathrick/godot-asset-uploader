@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, fields, MISSING, asdict, replace
+from dataclasses import dataclass, field, fields, MISSING, asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, ClassVar
@@ -16,8 +16,34 @@ def toml_path_encoder(path):
 
 tomlkit.register_encoder(toml_path_encoder)
 
-class SaveLoadMixin:
+# NB: It's important that config is mutated to update it, instead of using
+# dataclass.replace() or some other mechanism generating a new value, since we
+# rely on the config being available all the way up to the outermost click
+# context, which we actually create manually before click starts processing
+
+class ConfigMixin:
     VOLATILE: ClassVar = []
+
+    def __post_init__(self):
+        pass
+
+    @classmethod
+    @lru_cache()
+    def fields(cls):
+        return {field.name: field for field in fields(cls)}
+
+    @classmethod
+    def is_required(cls, field_name):
+        return cls.fields()[field_name].default is MISSING
+
+    def set(self, field, value, validate=True):
+        if field in self.fields():
+            setattr(self, field, value)
+            if validate:
+                self.validate()
+            return getattr(self, field)
+        return value
+
     def save(self, path=None, exclude=None):
         "Save config as a TOML file under PATH. If PATH is not absolute, it will be relative to self.root"
         path = self.root / (path or self.FILE_NAME)
@@ -38,12 +64,14 @@ class SaveLoadMixin:
         try:
             with Path(path).open() as file:
                 toml = tomlkit.load(file)
-                return replace(self, **toml.get("gdasset").unwrap())
+                for field, val in toml.get("gdasset").items():
+                    self.set(field, val, validate=False)
+                self.validate()
         except FileNotFoundError:
-            return self
+            pass
 
 @dataclass
-class Auth(SaveLoadMixin):
+class Auth(ConfigMixin):
     VOLATILE: ClassVar = ["root", "password"]
     FILE_NAME: ClassVar = "gdasset-auth.toml"
     FILE_COMMENT: ClassVar = """DO NOT COMMIT THIS FILE IN YOUR VERSION CONTROL SYSTEM
@@ -61,7 +89,7 @@ They should not be shared or saved anywhere outside of your own machine."""
 
 
 @dataclass
-class Config(SaveLoadMixin):
+class Config(ConfigMixin):
     # These fields should not be saved by save()
     VOLATILE: ClassVar = ["version", "commit",
                           "previous_payload", "no_prompt", "quiet", "dry_run",
@@ -114,8 +142,12 @@ file through your version control system."""
             self.title = self.get_plugin_key("name")
 
     def validate(self):
-        path_fields = [f for f in fields(self)
-                       if is_typed_as(f.type, Path) and f.name != "root"]
+        self.__post_init__()
+
+        if not self.root.exists():
+            raise GdAssetError(f"root directory '{self.root}' not found")
+
+        path_fields = [f for f in fields(self) if is_typed_as(f.type, Path)]
         for field in path_fields:
             val = getattr(self, field.name, None)
             # This means the field is required
@@ -136,14 +168,6 @@ file through your version control system."""
                 raise GdAssetError(f"Could not read {self.plugin.relative_to(self.root)}: Key {e.args[0]} does not exist.")
         return default
 
-    @classmethod
-    @lru_cache()
-    def fields(cls):
-        return {field.name: field for field in fields(cls)}
-
-    @classmethod
-    def is_required(cls, field_name):
-        return cls.fields()[field_name].default is MISSING
 
 def has_config_file(path):
     return (Path(path) / Config.FILE_NAME).exists()

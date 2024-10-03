@@ -25,42 +25,16 @@ def cli():
 based on the project repository."""
     pass
 
-def ensure_path_param(ctx, param, value):
-    if not value:
-        return
-    root = getattr(ctx.obj, "root", None)
-    path = root / value if root is not None else Path(value)
-    required = param.required or ctx.obj.is_required(param.name) or not is_default_param(ctx, param.name)
-    if required and not path.exists():
-        raise GdAssetError(f"{readable_param_name(param)}: file '{path}' not found")
-    return value
-
-def process_root(ctx, param, path):
-    ctx.obj = config.Config(
-        root=vcs.get_project_root(path),
-        # Fake value, since readme is required
-        readme="."
-    ).try_load()
-    ensure_path_param(ctx, param, path)
-    return ctx.obj.root
-
-def process_path_param(ctx, param, path):
-    ensure_path_param(ctx, param, path)
-    ctx.obj = dataclasses.replace(ctx.obj, **{param.name: path})
-    return getattr(ctx.obj, param.name, path)
-
 def process_repo_provider(ctx, param, provider):
-    provider = vcs.RepoProvider(provider.upper())
-    ctx.obj = dataclasses.replace(ctx.obj, repo_provider=provider)
-    return provider
+    return ctx.obj.set("repo_provider", vcs.RepoProvider(provider.upper()))
+
+def process_root(ctx, param, value):
+    val = process_param(ctx, param, value)
+    ctx.obj.try_load()
 
 # Generic process callback to update config
 def process_param(ctx, param, value):
-    cfg_kwargs = {field.name for field in dataclasses.fields(config.Config)}
-    if param.name in cfg_kwargs:
-        ctx.obj = dataclasses.replace(ctx.obj, **{param.name: value})
-        return getattr(ctx.obj, param.name)
-    return value
+    return ctx.obj.set(param.name, value)
 
 @click.pass_obj
 def default_repo_provider(cfg):
@@ -119,16 +93,18 @@ def option(*args, **kwargs):
     kw.setdefault("default", saved_default(opt.name))
     return click.option(*args, **kw, cls=opt_class)
 
+# IMPORTANT: this must be processed very early on, and by process_root(), since
+# it takes care of calling .try_load() to get any saved config values
 root_arg = click.argument("root", default=".", is_eager=True, callback=process_root)
 
 def shared_options(cmd):
     @option("--readme", default="README.md", metavar="PATH",
-            show_default=True, callback=process_path_param,
+            show_default=True,
             help="Location of README file, relative to project root")
     @option("--changelog", default="CHANGELOG.md", metavar="PATH",
-            show_default=True, callback=process_path_param,
+            show_default=True,
             help="Location of changelog file, relative to project root")
-    @option("--plugin", metavar="PATH", callback=process_path_param, is_eager=True,
+    @option("--plugin", metavar="PATH", is_eager=True,
             help="If specified, should be the path to a plugin.cfg file, "
             "which will be used to auto-populate project info")
     @option("--version", required_if_missing="plugin", default=preferred_from_plugin("version"),
@@ -192,7 +168,9 @@ def shared_options(cmd):
 
 @click.pass_obj
 def ensure_auth(cfg):
-    cfg.auth = cfg.auth or config.Auth(cfg.root).try_load()
+    if not cfg.auth:
+        cfg.auth = config.Auth(cfg.root)
+        cfg.auth.try_load()
 
 def saved_auth(field):
     @click.pass_obj
@@ -203,8 +181,7 @@ def saved_auth(field):
 
 def process_auth(ctx, option, value):
     ensure_auth()
-    ctx.obj.auth = dataclasses.replace(ctx.obj.auth, **{option.name: value})
-    return value
+    return ctx.obj.auth.set(option.name, value)
 
 
 class PasswordOption(OptionRequiredIfMissing):
@@ -263,8 +240,10 @@ def save_cfg(ctx, cfg):
     cfg.save(exclude={param for param in ctx.params
                       if is_default_param(ctx, param)})
 
-def maybe_print(cfg, msg, *args, pager=False, **kwargs):
-    if cfg.quiet:
+def maybe_print(msg, *args, pager=False, **kwargs):
+    ctx = click.get_current_context(silent=True)
+    cfg = ctx and ctx.obj
+    if cfg and cfg.quiet:
         return
     if pager:
         click.echo_via_pager(msg, *args, **kwargs)
@@ -305,7 +284,7 @@ def summarise_payload(cfg, payload):
             for type, link, op in previews:
                 p(f"  {type}{op}: {link}")
         p(sep)
-        maybe_print(cfg, buf.getvalue(), pager=not cfg.no_prompt)
+        maybe_print(buf.getvalue(), pager=not cfg.no_prompt)
 
 SHARED_PRIORITY_ADJUSTMENTS = [
     ("token", "username", "password", "save_auth"),
@@ -385,23 +364,29 @@ def login(cfg, root, save_auth):
 
 This is not required before using other commands, but can be used to save the generated token
 for future use."""
-    login_and_update_token()
+    rest_api.login_and_update_token(cfg, force=True)
     # FIXME: actually save the token
     click.echo("Login successful")
     if save_auth:
         save_cfg(cfg.auth)
 
+def printerr(msg):
+    maybe_print(f"ERROR: {msg}", file=sys.stderr)
+
 def die(msg, code=1):
-    print("ERROR:", msg, file=sys.stdout)
+    printerr(msg)
     sys.exit(code)
 
 def safe_cli():
-    try:
-        cli()
-    except GdAssetError as e:
-        die(str(e))
-    except Exception as e:
-        debug_on_error()
+    with click.Context(cli) as ctx:
+        ctx.obj = config.Config(root=".", readme=".")
+        try:
+            cli(parent=ctx)
+            cli()
+        except GdAssetError as e:
+            die(str(e))
+        except Exception as e:
+            debug_on_error()
 
 if __name__ == "__main__":
     safe_cli()

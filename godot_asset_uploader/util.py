@@ -1,5 +1,6 @@
 import email
 from enum import Enum
+from functools import lru_cache
 from urllib.parse import urlparse, parse_qs, urlencode
 import os
 from pathlib import Path
@@ -96,6 +97,7 @@ def ensure_tuple(x):
 def ensure_sequence(x):
     return x if is_sequence(x) else (x,)
 
+@lru_cache
 def is_typed_as(spec, x):
     """Return True if X (a type) matches SPEC (a type annotation). SPEC
 can either be a simple type itself, or a more complicated construct,
