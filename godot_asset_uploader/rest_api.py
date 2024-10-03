@@ -37,6 +37,13 @@ class RepoProvider(StrEnum):
     GITLAB = "GitLab"
     BITBUCKET = "BitBucket"
 
+    @classmethod
+    def _missing_(cls, value):
+        value = value.upper()
+        for member in cls:
+            if member.name == value:
+                return member
+        return None
 
 def guess_asset_id(id_or_url):
     "Attempt to guess asset id from what might be an existing URL"
@@ -125,3 +132,4 @@ def update_cfg_from_payload(cfg, json):
 
 def login(user, passwd):
     json = POST("login", params={"username": user, "password": passwd})
+    return json

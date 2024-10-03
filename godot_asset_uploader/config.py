@@ -9,11 +9,6 @@ from tomlkit.exceptions import NonExistentKey
 from .errors import *
 from .util import is_typed_as
 
-CONFIG_FILE_NAME = "gdasset.toml"
-CONFIG_FILE_COMMENT = """These are default values for the project's submission to Godot Asset Library
-through Godot Asset Uploader (gdasset). It is safe to track and commit this
-file through your version control system."""
-
 def toml_path_encoder(path):
     if isinstance(path, Path):
         return tomlkit.string(str(path))
@@ -21,8 +16,61 @@ def toml_path_encoder(path):
 
 tomlkit.register_encoder(toml_path_encoder)
 
+class SaveLoadMixin:
+    VOLATILE: ClassVar = []
+    def save(self, path=None, exclude=None):
+        "Save config as a TOML file under PATH. If PATH is not absolute, it will be relative to self.root"
+        path = self.root / (path or self.FILE_NAME)
+        out = tomlkit.toml_file.TOMLFile(path)
+        doc = tomlkit.TOMLDocument()
+        for line in self.FILE_COMMENT.splitlines():
+            doc.add(tomlkit.comment(line))
+        table = tomlkit.table()
+        table.update({k: v for k, v in asdict(self).items()
+                      if v is not None
+                      and k not in self.VOLATILE
+                      and k not in (exclude or set())})
+        doc["gdasset"] = table
+        out.write(doc)
+
+    def try_load(self, path=None):
+        path = self.root / (path or self.FILE_NAME)
+        try:
+            with Path(path).open() as file:
+                toml = tomlkit.load(file)
+                return replace(self, **toml.get("gdasset").unwrap())
+        except FileNotFoundError:
+            return self
+
+
 @dataclass
-class Config:
+class Auth(SaveLoadMixin):
+    VOLATILE: ClassVar = ["root"]
+    FILE_NAME: ClassVar = "gdasset-auth.toml"
+    FILE_COMMENT: ClassVar = """DO NOT COMMIT THIS FILE IN YOUR VERSION CONTROL SYSTEM
+
+These are the saved credentials used to log into Godot Asset Library.
+They should not be shared or saved anywhere outside of your own machine."""
+    root: Path
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+
+    def validate(self):
+        if not self.token and not (self.username and self.password):
+            raise GdAssetError("Either a login token, or username and password must be provided.")
+
+
+@dataclass
+class Config(SaveLoadMixin):
+    # These fields should not be saved by save()
+    VOLATILE: ClassVar = ["version", "commit",
+                          "previous_payload", "no_prompt", "quiet", "dry_run",
+                          "auth"]
+    FILE_NAME: ClassVar = "gdasset.toml"
+    FILE_COMMENT: ClassVar = """These are default values for the project's submission to Godot Asset Library
+through Godot Asset Uploader (gdasset). It is safe to track and commit this
+file through your version control system."""
     root: Path
     readme: Path
     changelog: Optional[Path] = None
@@ -48,8 +96,7 @@ class Config:
     quiet: bool = False
     dry_run: bool = False
 
-    # These fields should not be saved by save()
-    VOLATILE: ClassVar = ["version", "commit", "previous_payload", "no_prompt", "quiet", "dry_run"]
+    auth: Optional[Auth] = None
 
     def __post_init__(self):
         self._parsed_plugin = None
@@ -90,28 +137,6 @@ class Config:
                 raise GdAssetError(f"Could not read {self.plugin.relative_to(self.root)}: Key {e.args[0]} does not exist.")
         return default
 
-    def save(self, path=None, exclude=None):
-        "Save config as a TOML file under PATH. If PATH is not absolute, it will be relative to self.root"
-        path = self.root / (path or CONFIG_FILE_NAME)
-        out = tomlkit.toml_file.TOMLFile(path)
-        doc = tomlkit.TOMLDocument()
-        for line in CONFIG_FILE_COMMENT.splitlines():
-            doc.add(tomlkit.comment(line))
-        table = tomlkit.table()
-        table.update({k: v for k, v in asdict(self).items()
-                      if k not in self.VOLATILE and k not in (exclude or set())})
-        doc["gdasset"] = table
-        out.write(doc)
-
-    def try_load(self, path=None):
-        path = self.root / (path or CONFIG_FILE_NAME)
-        try:
-            with Path(path).open() as file:
-                toml = tomlkit.load(file)
-                return replace(self, **toml.get("gdasset").unwrap())
-        except FileNotFoundError:
-            return self
-
     @classmethod
     @lru_cache()
     def fields(cls):
@@ -122,4 +147,7 @@ class Config:
         return cls.fields()[field_name].default is MISSING
 
 def has_config_file(path):
-    return (Path(path) / CONFIG_FILE_NAME).exists()
+    return (Path(path) / Config.FILE_NAME).exists()
+
+def has_auth_file(path):
+    return (Path(path) / Auth.FILE_NAME).exists()
