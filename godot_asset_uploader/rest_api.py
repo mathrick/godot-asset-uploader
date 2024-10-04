@@ -1,5 +1,6 @@
 from dataclasses import replace
-from itertools import dropwhile, zip_longest
+from itertools import dropwhile, islice, zip_longest, count
+import math
 from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlparse
 
@@ -7,7 +8,7 @@ import dirtyjson
 from validator_collection.checkers import is_integer, is_url
 import requests
 
-from .util import StrEnum
+from .util import StrEnum, dict_merge
 from .errors import *
 
 OFFICIAL_LIBRARY_ROOT = "https://godotengine.org/"
@@ -73,10 +74,10 @@ def get_library_url(*path):
     url = urljoin(OFFICIAL_LIBRARY_ROOT, rest)
     return url
 
-def api_request(meth, *url, params=None, headers=None):
+def api_request(meth, *url, data=None, params=None, headers=None):
     headers = headers or {}
     headers.update({'Accept': 'application/json'})
-    resp = requests.request(meth, get_library_url(*url), headers=headers, data=params)
+    resp = requests.request(meth, get_library_url(*url), data=data, headers=headers, params=params)
     try:
         resp.raise_for_status()
     except requests.HTTPError:
@@ -94,11 +95,45 @@ def api_request(meth, *url, params=None, headers=None):
 def GET(*url, params=None, headers=None):
     return api_request("get", *url, params=params, headers=headers)
 
-def POST(*url, params=None, headers=None):
-    return api_request("post", *url, params=params, headers=headers)
+def POST(*url, data=None, params=None, headers=None):
+    return api_request("post", *url, data=None, params=params, headers=headers)
 
-def get_asset_info(id):
-    return GET("asset", guess_asset_id(id))
+def get_paginated(*url, params=None, headers=None, max_pages=None):
+    result = []
+    for page in islice(count(0), max_pages):
+        params["page"] = page
+        json = GET(*url, params=params, headers=headers)
+        result += json["result"]
+        if page >= json["pages"] - 1:
+            break
+    return result
+
+def get_asset_info(asset_id):
+    return GET("asset", guess_asset_id(asset_id))
+
+def get_pending_edits(asset_id):
+    return get_paginated("asset", "edit", params={
+        "asset": guess_asset_id(asset_id), "status": "new in_review"
+    })
+
+def is_payload_same_as_pending(previous, payload, pending):
+    def normalise(previews):
+        return [{
+            "type": p["type"],
+            "link": p["link"],
+            "thumbnail": p.get("thumbnail", p["link"])
+        } for p in previews]
+
+    keys = (set(payload) | set(pending)) - {
+        # These are only present in edits, except for category, which
+        # for some reason is empty there
+        'edit_id', 'user_id', 'submit_date', 'modify_date', 'category', 'status', 'reason'
+    }
+    payload = dict_merge(previous, payload)
+    payload["previews"] = normalise(payload["previews"])
+    pending = dict_merge(previous, pending)
+    pending["previews"] = normalise(pending["previews"])
+    return not [k for k in keys if payload.get(k) != pending.get(k)]
 
 def merge_asset_payload(new, old=None):
     old = old or {}
@@ -131,7 +166,7 @@ def merge_asset_payload(new, old=None):
 def upload_or_update_asset(cfg, json, retries=1):
     url = ("asset", json["asset_id"]) if "asset_id" in json else ("asset",)
     json["token"] = cfg.auth.token
-    POST(*url, params=json)
+    POST(*url, data=json)
 
 def update_cfg_from_payload(cfg, json):
     remap = {
@@ -145,7 +180,7 @@ def update_cfg_from_payload(cfg, json):
                            if (remapped := remap.get(k, k)) in cfg.fields()})
 
 def login(user, passwd):
-    json = POST("login", params={"username": user, "password": passwd})
+    json = POST("login", data={"username": user, "password": passwd})
     return json
 
 def login_and_update_token(cfg, force=False):

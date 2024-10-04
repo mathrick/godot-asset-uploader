@@ -12,7 +12,7 @@ from . import vcs, config, rest_api
 from .errors import *
 from .markdown import get_asset_description
 from .util import (OptionRequiredIfMissing, DynamicPromptOption, PriorityProcessingCommand,
-                   readable_param_name, is_default_param,
+                   dict_merge, readable_param_name, is_default_param,
                    terminal_width, debug_on_error)
 
 CMD_EPILOGUE = """Most parameters can be inferred from the project repository,
@@ -368,11 +368,24 @@ class UpdateCommand(PriorityProcessingCommand):
 def update(ctx, previous_payload, save, save_auth):
     """Update an existing asset in the library"""
     cfg = ctx.obj
-    payload = rest_api.merge_asset_payload(get_asset_payload(cfg), previous_payload)
-    summarise_payload(cfg, payload)
-    confirmation = cfg.no_prompt or cfg.dry_run or click.confirm(
-        "Proceed with the update?" if previous_payload else "Proceed with the upload?"
-    )
+    payload = get_asset_payload(cfg)
+    pending = []
+    confirmation = False
+
+    if previous_payload:
+        pending = rest_api.get_pending_edits(previous_payload["asset_id"])
+
+    if dict_merge(previous_payload, payload) == previous_payload:
+        maybe_print("No changes from the existing asset listing, not updating")
+    if any(rest_api.is_payload_same_as_pending(previous_payload, payload, edit)
+           for edit in pending):
+        maybe_print("There is already a pending edit for this asset with identical changes, not updating")
+    else:
+        payload = rest_api.merge_asset_payload(payload, previous_payload)
+        summarise_payload(cfg, payload)
+        confirmation = cfg.no_prompt or cfg.dry_run or click.confirm(
+            "Proceed with the update?" if previous_payload else "Proceed with the upload?"
+        )
     if save:
         save_cfg(cfg)
 
