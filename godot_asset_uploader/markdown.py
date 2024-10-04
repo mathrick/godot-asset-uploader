@@ -44,7 +44,7 @@ class MetaItem(SpanToken):
 # will not trigger an embed, no matter the syntax.
 class ExtendedAutoLink(AutoLink):
     # https://github.github.com/gfm/#autolinks-extension-
-    pattern = re.compile("(?:^|[\s*_~(])(http(s)?://[^\s\a\b\f\n\r\t\v<>]+)")
+    pattern = re.compile("(?:^|[\\s*_~(])(http(s)?://[^\\s\a\b\f\n\r\t\v<>]+)")
     entity_ref_pattern = re.compile("&[a-zA-Z0-9]+;$")
     parse_inner=False
 
