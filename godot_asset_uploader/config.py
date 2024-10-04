@@ -90,7 +90,7 @@ They should not be shared or saved anywhere outside of your own machine."""
 @dataclass
 class Config(ConfigMixin):
     # These fields should not be saved by save()
-    VOLATILE: ClassVar = ["version", "commit",
+    VOLATILE: ClassVar = ["root", "version", "commit",
                           "previous_payload", "no_prompt", "quiet", "dry_run",
                           "auth"]
     FILE_NAME: ClassVar = "gdasset.toml"
@@ -125,8 +125,8 @@ file through your version control system."""
     auth: Optional[Auth] = None
 
     def __post_init__(self):
+        self.root = Path(self.root)
         self._parsed_plugin = None
-        self.root = Path(self.root).absolute()
         path_fields = [f for f in fields(self)
                        if is_typed_as(f.type, Path) and f.name != "root"]
         for field in path_fields:

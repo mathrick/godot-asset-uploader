@@ -1,7 +1,6 @@
 from dataclasses import replace
 from itertools import dropwhile, islice, zip_longest, count
 import math
-from pathlib import PurePosixPath
 
 import dirtyjson
 from validator_collection.checkers import is_integer, is_url

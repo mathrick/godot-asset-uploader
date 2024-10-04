@@ -2,7 +2,6 @@ import email
 from enum import Enum
 from functools import lru_cache
 import os
-from pathlib import Path
 import typing as t
 import shutil
 import sys, pdb, traceback
@@ -81,11 +80,6 @@ def debug_on_error():
         # NB: Turns out this is legal, as long as an exception is being handled,
         # it doesn't need to be lexically visible
         raise
-
-def unexpanduser(path):
-    path = Path(path)
-    if path.is_relative_to(Path.home()):
-        return "~" / path.relative_to(Path.home())
 
 def is_sequence(x):
     return isinstance(x, t.Sequence) and not isinstance(x, (bytes, str))

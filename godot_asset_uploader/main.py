@@ -2,7 +2,6 @@ import dataclasses
 from functools import wraps
 from inspect import signature
 from io import StringIO
-from pathlib import Path
 import sys
 
 import click, cloup
