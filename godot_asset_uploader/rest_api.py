@@ -8,7 +8,7 @@ import dirtyjson
 from validator_collection.checkers import is_integer, is_url
 import requests
 
-from .util import StrEnum, dict_merge
+from .util import StrEnum, dict_merge, normalise_newlines
 from .errors import *
 
 OFFICIAL_LIBRARY_ROOT = "https://godotengine.org/"
@@ -112,9 +112,22 @@ def get_asset_info(asset_id):
     return GET("asset", guess_asset_id(asset_id))
 
 def get_pending_edits(asset_id):
-    return get_paginated("asset", "edit", params={
-        "asset": guess_asset_id(asset_id), "status": "new in_review"
-    })
+    """Get the updated payloads representing any pending edits for the
+asset. Edits will be merged with the original payload info."""
+    # We have to get the ids first, then fetch each edit individually,
+    # because asset/edit listings lack commits and previews
+    ids = [edit["edit_id"]
+           for edit in get_paginated("asset", "edit", params={
+                   "asset": guess_asset_id(asset_id), "status": "new in_review"
+           })]
+    return [dict_merge(edit["original"],
+                       # Need to normalise strings heavily because
+                       # browser edits mangle things horribly
+                       {k: v
+                        for k, v in edit.items() if v is not None and k != "original"})
+            for edit_id in ids
+            for edit in [GET("asset", "edit", edit_id)]]
+
 
 def is_payload_same_as_pending(previous, payload, pending):
     def normalise(previews):
@@ -124,16 +137,21 @@ def is_payload_same_as_pending(previous, payload, pending):
             "thumbnail": p.get("thumbnail", p["link"])
         } for p in previews]
 
+    def unmangle(v):
+        return normalise_newlines(v).strip("\n") if isinstance(v, str) else v
+
     keys = (set(payload) | set(pending)) - {
         # These are only present in edits, except for category, which
         # for some reason is empty there
-        'edit_id', 'user_id', 'submit_date', 'modify_date', 'category', 'status', 'reason'
+        'edit_id', 'user_id', 'submit_date', 'modify_date',
+        'category', 'status', 'reason', 'support_level',
     }
     payload = dict_merge(previous, payload)
     payload["previews"] = normalise(payload["previews"])
     pending = dict_merge(previous, pending)
     pending["previews"] = normalise(pending["previews"])
-    return not [k for k in keys if payload.get(k) != pending.get(k)]
+    return not [k for k in keys if unmangle(payload.get(k)) != unmangle(pending.get(k))]
+
 
 def merge_asset_payload(new, old=None):
     old = old or {}

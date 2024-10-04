@@ -101,6 +101,10 @@ def dict_merge(d1, d2):
     "Like d1.update(d2), but returns a new dict"
     return {k: d2.get(k, d1.get(k)) for k in set(d1) | set(d2)}
 
+def normalise_newlines(string):
+    "Normalise \r and \r\n to \n"
+    return "\n".join(string.splitlines())
+
 @lru_cache
 def is_typed_as(spec, x):
     """Return True if X (a type) matches SPEC (a type annotation). SPEC

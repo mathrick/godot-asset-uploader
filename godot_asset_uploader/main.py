@@ -375,6 +375,8 @@ def update(ctx, previous_payload, save, save_auth):
     if previous_payload:
         pending = rest_api.get_pending_edits(previous_payload["asset_id"])
 
+    # NB: We can't use merge_asset_payload() for comparisons because of the
+    # special processing it does to previews
     if dict_merge(previous_payload, payload) == previous_payload:
         maybe_print("No changes from the existing asset listing, not updating")
     if any(rest_api.is_payload_same_as_pending(previous_payload, payload, edit)
