@@ -1,3 +1,8 @@
+PARAMS:
+  changelog: CHANGELOG-short.md
+  path_offset: ''
+  readme: README-with-changelog.md
+  repo_url: https://github.com/dummy-user/dummy-repo
 description: |
   This is a test Markdown file for gdasset.
 
@@ -26,9 +31,9 @@ description: |
 
   But this part is very important and should be kept.
 previews:
-- link: https://gitlab.com/dummy-user/dummy-repo/-/raw/12345deadbeef7890/screenshots/screenshot1.png
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/screenshots/screenshot1.png
   type: image
-- link: https://gitlab.com/dummy-user/dummy-repo/-/raw/12345deadbeef7890/screenshots/screenshot2.jpg
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/screenshots/screenshot2.jpg
   type: image
 - link: https://youtube.com/watch?v=12345678
   type: video

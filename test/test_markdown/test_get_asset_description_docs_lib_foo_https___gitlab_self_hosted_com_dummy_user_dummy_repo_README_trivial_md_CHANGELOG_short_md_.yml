@@ -1,0 +1,10 @@
+PARAMS:
+  changelog: CHANGELOG-short.md
+  path_offset: docs/lib/foo
+  readme: README-trivial.md
+  repo_url: https://gitlab.self-hosted.com/dummy-user/dummy-repo
+description: |
+  This is a trivial markdown file that doesn't use any of gdasset's features.
+
+  It should be rendered as-is.
+previews: []

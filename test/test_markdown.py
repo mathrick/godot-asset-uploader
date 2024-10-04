@@ -1,4 +1,5 @@
 import pytest
+
 import yaml
 from yarl import URL
 
@@ -14,18 +15,17 @@ def hack_pyyaml_multiline_strings():
     # "literal style block scalars", ie. the readable representation
     # of multiline strings.
     # Copied mostly from https://stackoverflow.com/a/15423007/339482
-    def represent(self, tag, value, style=None):
+    def represent_scalar(self, tag, value, style=None):
         style = "|" if "\n" in value else style
         node = yaml.representer.ScalarNode(tag, value, style=style)
         if self.alias_key is not None:
             self.represented_objects[self.alias_key] = node
         return node
 
-    old_represent = yaml.representer.BaseRepresenter.represent_scalar
-    yaml.representer.BaseRepresenter.represent_scalar = represent
+    old_represent_scalar = yaml.representer.BaseRepresenter.represent_scalar
+    yaml.representer.BaseRepresenter.represent_scalar = represent_scalar
     yield
-    yaml.representer.BaseRepresenter.represent_scalar = old_represent
-
+    yaml.representer.BaseRepresenter.represent_scalar = old_represent_scalar
 
 @pytest.mark.parametrize("changelog", [
     "CHANGELOG-long.md",
@@ -44,12 +44,20 @@ def hack_pyyaml_multiline_strings():
     "https://gitlab.com/dummy-user/dummy-repo",
     "https://gitlab.self-hosted.com/dummy-user/dummy-repo",
 ])
-def test_get_asset_description(data_regression, datadir, readme, changelog, repo_url):
+@pytest.mark.parametrize("path_offset", [
+    None,
+    "",
+    "docs",
+    "docs/lib/foo",
+])
+def test_get_asset_description(request, data_regression, datadir, readme, changelog, repo_url, path_offset):
     cfg = Config(root=datadir, readme=readme, changelog=changelog)
 
     def prep_image_url(url):
         if not URL(url).absolute:
-            return vcs.resolve_with_base_content_url(repo_url, "12345deadbeef7890", url)
+            return vcs.resolve_with_base_content_url(
+                repo_url, "12345deadbeef7890", url, path_offset=path_offset
+            )
         return url
 
     def prep_link_url(url):
@@ -61,6 +69,8 @@ def test_get_asset_description(data_regression, datadir, readme, changelog, repo
         cfg, prep_image_func=prep_image_url, prep_link_func=prep_link_url
     )
     data_regression.check({
+        # Record execution params for easier inspection
+        "PARAMS": {k: v for k, v in locals().items() if k in request.node.callspec.params},
         "description": description,
         "previews": previews,
     })

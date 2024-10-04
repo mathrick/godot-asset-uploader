@@ -183,17 +183,24 @@ def guess_git_download_url(url, commit):
 
 guess_download_url = dispatch_url([guess_git_download_url])
 
-def resolve_with_base_content_url(provider_url, commit, relative_url):
+def resolve_with_base_content_url(provider_url, commit, relative_path, path_offset=None):
     """Get the base URL to resolve relative links against for the given provider.
-I.e. https://raw.githubusercontent.com/owner/repo/commit/
-"""
+I.e. https://raw.githubusercontent.com/owner/repo/commit/relative/path
+
+    If PATH_OFFSET is given, it should be a slash-separated string representing
+the difference between repository root, and the location of the file the link is
+being generated from. I.e. if the links are resolved for docs/dev/README.md, then
+the offset would be "docs/dev", and the resulting URL would become
+https://raw.githubusercontent.com/owner/repo/commit/docs/dev/relative/path"""
     provider = guess_git_repo_provider(provider_url)
     parsed = giturlparse.parse(provider_url or "")
     if provider == RepoProvider.GITHUB:
         base_url = GITHUB_BASE_CONTENT_URL
     if provider == RepoProvider.BITBUCKET:
-        raise GdAssetError(f"Don't know how to resolve relative URL ({relative_url}) in BitBucket repos")
+        raise GdAssetError(f"Don't know how to resolve relative URL ({relative_path}) in BitBucket repos")
     if provider == RepoProvider.GITLAB:
         base_url = GITLAB_BASE_CONTENT_URL
-    template = Template(str(base_url / relative_url))
+    if path_offset:
+        base_url = base_url / path_offset
+    template = Template(str(base_url / relative_path))
     return template.safe_substitute(**parsed.data, host=parsed.host, commit=commit)

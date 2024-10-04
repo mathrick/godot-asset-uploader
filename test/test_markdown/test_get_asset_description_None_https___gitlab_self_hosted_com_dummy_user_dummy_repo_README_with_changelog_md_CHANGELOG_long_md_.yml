@@ -1,3 +1,8 @@
+PARAMS:
+  changelog: CHANGELOG-long.md
+  path_offset: null
+  readme: README-with-changelog.md
+  repo_url: https://gitlab.self-hosted.com/dummy-user/dummy-repo
 description: |
   This is a test Markdown file for gdasset.
 

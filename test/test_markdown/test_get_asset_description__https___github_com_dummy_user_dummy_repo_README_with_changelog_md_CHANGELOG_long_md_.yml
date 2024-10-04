@@ -1,3 +1,8 @@
+PARAMS:
+  changelog: CHANGELOG-long.md
+  path_offset: ''
+  readme: README-with-changelog.md
+  repo_url: https://github.com/dummy-user/dummy-repo
 description: |
   This is a test Markdown file for gdasset.
 
@@ -12,8 +17,17 @@ description: |
      * And this is another sublist
 
   Changes:
-  * Version 0.1.0
-    - This is the only one so far
+  * Version 99
+    - Removed some Luftballons
+
+  * Version 1.2.0
+    - A change
+    - Another change
+    - Fixed a thing
+
+  * Version 1.2.0
+    - Some earlier changes
+
 
 
 
@@ -26,9 +40,9 @@ description: |
 
   But this part is very important and should be kept.
 previews:
-- link: https://gitlab.self-hosted.com/dummy-user/dummy-repo/-/raw/12345deadbeef7890/screenshots/screenshot1.png
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/screenshots/screenshot1.png
   type: image
-- link: https://gitlab.self-hosted.com/dummy-user/dummy-repo/-/raw/12345deadbeef7890/screenshots/screenshot2.jpg
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/screenshots/screenshot2.jpg
   type: image
 - link: https://youtube.com/watch?v=12345678
   type: video

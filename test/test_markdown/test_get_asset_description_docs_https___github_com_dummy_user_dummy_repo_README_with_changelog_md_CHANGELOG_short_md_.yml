@@ -1,0 +1,41 @@
+PARAMS:
+  changelog: CHANGELOG-short.md
+  path_offset: docs
+  readme: README-with-changelog.md
+  repo_url: https://github.com/dummy-user/dummy-repo
+description: |
+  This is a test Markdown file for gdasset.
+
+  Here's another paragraph:
+   * And a list
+   * With several items
+   * This one even has an embedded paragraph
+
+     Like this
+      * And a sublist!
+   * But this one should show up, since excludes are parsed within their containing elements
+     * And this is another sublist
+
+  Changes:
+  * Version 0.1.0
+    - This is the only one so far
+
+
+
+  Send praise and hate to nowhere@example.com, or mailto:stillnothere@example.com.
+
+  And here are my videos:
+
+
+
+
+  But this part is very important and should be kept.
+previews:
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/docs/screenshots/screenshot1.png
+  type: image
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/docs/screenshots/screenshot2.jpg
+  type: image
+- link: https://youtube.com/watch?v=12345678
+  type: video
+- link: http://some.where.example.com/myassets/video.mp4
+  type: video

@@ -265,9 +265,12 @@ def get_asset_payload(cfg: config.Config):
     """Based on CFG, get the payload dict for the asset suitable for posting to the
 asset library. The payload generated might not be complete, and might need to be
 merged with another dict to provide missing values (this is the case for updates)"""
+    path_offset = "/".join(cfg.readme.parent.relative_to(cfg.root).parts)
     def prep_image_url(url):
         if not URL(url).absolute:
-            return vcs.resolve_with_base_content_url(cfg.repo_url, cfg.commit, url)
+            return vcs.resolve_with_base_content_url(
+                cfg.repo_url, cfg.commit, url, path_offset=path_offset
+            )
         return url
 
     def prep_link_url(url):
