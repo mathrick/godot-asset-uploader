@@ -7,6 +7,7 @@ import sys
 
 import click, cloup
 from cloup.formatting import sep, HelpFormatter
+from yarl import URL
 
 from . import vcs, config, rest_api
 from .errors import *
@@ -207,7 +208,7 @@ def saved_auth(field):
 
 def process_auth(ctx, param, value):
     ensure_auth()
-    return ctx.obj.auth.set(param.name, value)
+    return ctx.obj.auth.set(param.name, value, validate=False)
 
 @click.pass_context
 def invalidate_token(ctx):
@@ -264,7 +265,19 @@ def get_asset_payload(cfg: config.Config):
     """Based on CFG, get the payload dict for the asset suitable for posting to the
 asset library. The payload generated might not be complete, and might need to be
 merged with another dict to provide missing values (this is the case for updates)"""
-    description, previews = get_asset_description(cfg)
+    def prep_image_url(url):
+        if not URL(url).absolute:
+            return vcs.resolve_with_base_content_url(cfg.repo_url, cfg.commit, url)
+        return url
+
+    def prep_link_url(url):
+        if not URL(url).absolute:
+            return vcs.resolve_with_base_url(cfg.repo_url, cfg.commit, url)
+        return url
+
+    description, previews = get_asset_description(
+        cfg, prep_image_func=prep_image_url, prep_link_func=prep_link_url
+    )
     return {
         "title": cfg.title,
         "description": description,

@@ -1,5 +1,6 @@
 from itertools import chain
 from pathlib import Path
+from string import Template
 
 from dulwich.repo import Repo as GitRepo
 import dulwich.porcelain as git
@@ -10,6 +11,11 @@ from yarl import URL
 
 from . import config, errors as err
 from .rest_api import RepoProvider
+
+GITHUB_BASE_CONTENT_URL = URL("https://raw.githubusercontent.com/$owner/$repo/$commit/")
+# FIXME: This is probably wrong in some cases, since GitLab has much more
+# complicated ways of grouping repos with multiple levels of hierarchy
+GITLAB_BASE_CONTENT_URL = URL("https://$host/$owner/$repo/-/raw/$commit/")
 
 def has_git_repo(path):
     try:
@@ -177,3 +183,17 @@ def guess_git_download_url(url, commit):
 
 guess_download_url = dispatch_url([guess_git_download_url])
 
+def resolve_with_base_content_url(provider_url, commit, relative_url):
+    """Get the base URL to resolve relative links against for the given provider.
+I.e. https://raw.githubusercontent.com/owner/repo/commit/
+"""
+    provider = guess_git_repo_provider(provider_url)
+    parsed = giturlparse.parse(provider_url or "")
+    if provider == RepoProvider.GITHUB:
+        base_url = GITHUB_BASE_CONTENT_URL
+    if provider == RepoProvider.BITBUCKET:
+        raise GdAssetError(f"Don't know how to resolve relative URL ({relative_url}) in BitBucket repos")
+    if provider == RepoProvider.GITLAB:
+        base_url = GITLAB_BASE_CONTENT_URL
+    template = Template(str(base_url / relative_url))
+    return template.safe_substitute(**parsed.data, host=parsed.host, commit=commit)

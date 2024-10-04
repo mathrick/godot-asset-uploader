@@ -1,11 +1,12 @@
 import pytest
 import yaml
+from yarl import URL
 
 from godot_asset_uploader.config import Config
+from godot_asset_uploader import vcs
 from godot_asset_uploader.markdown import (
     get_asset_description
 )
-
 
 @pytest.fixture(autouse=True)
 def hack_pyyaml_multiline_strings():
@@ -34,9 +35,31 @@ def hack_pyyaml_multiline_strings():
     "README-trivial.md",
     "README-with-changelog.md",
 ])
-def test_get_asset_description(data_regression, datadir, readme, changelog):
+@pytest.mark.parametrize("repo_url", [
+    "https://github.com/dummy-user/dummy-repo",
+    pytest.param(
+        "https://dummy-user@bitbucket.org/dummy-user/dummy-repo",
+        marks=pytest.mark.xfail
+    ),
+    "https://gitlab.com/dummy-user/dummy-repo",
+    "https://gitlab.self-hosted.com/dummy-user/dummy-repo",
+])
+def test_get_asset_description(data_regression, datadir, readme, changelog, repo_url):
     cfg = Config(root=datadir, readme=readme, changelog=changelog)
-    description, previews = get_asset_description(cfg)
+
+    def prep_image_url(url):
+        if not URL(url).absolute:
+            return vcs.resolve_with_base_content_url(repo_url, "12345deadbeef7890", url)
+        return url
+
+    def prep_link_url(url):
+        if not URL(url).absolute:
+            return vcs.resolve_with_base_url(repo_url, url, cfg.commit)
+        return url
+
+    description, previews = get_asset_description(
+        cfg, prep_image_func=prep_image_url, prep_link_func=prep_link_url
+    )
     data_regression.check({
         "description": description,
         "previews": previews,

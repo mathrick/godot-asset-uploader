@@ -26,9 +26,9 @@ description: |
 
   But this part is very important and should be kept.
 previews:
-- link: screenshots/screenshot1.png
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/screenshots/screenshot1.png
   type: image
-- link: screenshots/screenshot2.jpg
+- link: https://raw.githubusercontent.com/dummy-user/dummy-repo/12345deadbeef7890/screenshots/screenshot2.jpg
   type: image
 - link: https://youtube.com/watch?v=12345678
   type: video

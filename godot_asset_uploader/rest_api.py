@@ -94,7 +94,7 @@ def GET(*url, params=None, headers=None):
     return api_request("get", *url, params=params, headers=headers)
 
 def POST(*url, data=None, params=None, headers=None):
-    return api_request("post", *url, data=None, params=params, headers=headers)
+    return api_request("post", *url, data=data, params=params, headers=headers)
 
 def get_paginated(*url, params=None, headers=None, max_pages=None):
     result = []
@@ -132,7 +132,7 @@ def is_payload_same_as_pending(previous, payload, pending):
         return [{
             "type": p["type"],
             "link": p["link"],
-            "thumbnail": p.get("thumbnail", p["link"])
+            "thumbnail": p.get("thumbnail") or p["link"]
         } for p in previews]
 
     def unmangle(v):

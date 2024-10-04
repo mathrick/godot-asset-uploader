@@ -66,7 +66,6 @@ class ConfigMixin:
                 toml = tomlkit.load(file)
                 for field, val in toml.get("gdasset").items():
                     self.set(field, val, validate=False)
-                self.validate()
         except FileNotFoundError:
             pass
 

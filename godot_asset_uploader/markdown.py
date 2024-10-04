@@ -11,7 +11,7 @@ from mistletoe.ast_renderer import AstRenderer
 from validator_collection.checkers import is_url
 from yarl import URL
 
-from . import config
+from . import config, vcs
 from .errors import *
 from .util import is_interesting_link, normalise_video_link, is_image_link
 
@@ -225,23 +225,30 @@ images, video, and HTML fragments"""
         raise GdAssetError(f"Unsupported directive: '{item.tag}'")
 
 
-def get_asset_description(cfg: config.Config):
-    "Return description (str) and previews (list of dicts) for the asset"
+def get_asset_description(cfg: config.Config, prep_image_func=None, prep_link_func=None):
+    """Return description (str) and previews (list of dicts) for the asset.
+
+    PREP_IMAGE_FUNC and PREP_LINK_FUNC are optional functions used to process
+    image URLs and other links respectively. This is most useful for resolving
+    relative URLs against some base URL to make them absolute."""
+
     description = None
     previews = []
 
+    prep_image_func = prep_image_func or (lambda x: x)
+    prep_link_func = prep_link_func or (lambda x: x)
+
     def process_image(token):
-        previews.append({"type": "image", "link": token.src})
+        previews.append({"type": "image", "link": prep_image_func(token.src)})
 
     def process_link(token):
-        uri = URL(token.target)
-        if not is_interesting_link(str(uri)):
+        if not is_interesting_link(token.target):
             pass
-        elif (href := normalise_video_link(str(uri))):
-            previews.append({"type": "video", "link": href})
+        elif (href := normalise_video_link(token.target)):
+            previews.append({"type": "video", "link": prep_image_func(href)})
             return None
-        elif is_image_link(str(uri)):
-            previews.append({"type": "image", "link": str(uri)})
+        elif is_image_link(token.target):
+            previews.append({"type": "image", "link": prep_image_func(token.target)})
             return None
         # All links will be converted to autolink syntax, since the asset
         # library doesn't support any form of markup whatsoever
