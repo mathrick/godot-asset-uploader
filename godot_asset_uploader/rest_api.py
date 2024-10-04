@@ -2,16 +2,16 @@ from dataclasses import replace
 from itertools import dropwhile, islice, zip_longest, count
 import math
 from pathlib import PurePosixPath
-from urllib.parse import urljoin, urlparse
 
 import dirtyjson
 from validator_collection.checkers import is_integer, is_url
 import requests
+from yarl import URL
 
 from .util import StrEnum, dict_merge, normalise_newlines
 from .errors import *
 
-OFFICIAL_LIBRARY_ROOT = "https://godotengine.org/"
+OFFICIAL_LIBRARY_ROOT = URL("https://godotengine.org/")
 # FIXME: This is not actually stated anywhere in the docs, but circumstancial
 # evidence suggests that categories and their ids are specific to the given
 # library. This will need refactoring if other libraries ever become a thing
@@ -57,10 +57,10 @@ def guess_asset_id(id_or_url):
     if is_integer(id_or_url):
         return id_or_url
     if is_url(id_or_url):
-        parsed = urlparse(id_or_url)
+        parsed = URL(id_or_url)
         # Currently we're only supporting the official asset library
-        if parsed.scheme and parsed.netloc == urlparse(OFFICIAL_LIBRARY_ROOT).netloc:
-            path = list(dropwhile(lambda x: x != "asset", PurePosixPath(parsed.path).parts))
+        if parsed.scheme and parsed.host == OFFICIAL_LIBRARY_ROOT.host:
+            path = list(dropwhile(lambda x: x != "asset", parsed.parts))
             if path and len(path) > 1:
                 prefix, id, *suffix = path
                 try:
@@ -70,9 +70,7 @@ def guess_asset_id(id_or_url):
     raise GdAssetError(f"{id_or_url} is not a valid asset ID or asset URL")
 
 def get_library_url(*path):
-    rest = "/".join(["asset-library", "api"] + [str(p) for p in path])
-    url = urljoin(OFFICIAL_LIBRARY_ROOT, rest)
-    return url
+    return str(OFFICIAL_LIBRARY_ROOT.joinpath(*["asset-library", "api"], *path))
 
 def api_request(meth, *url, data=None, params=None, headers=None):
     headers = headers or {}

@@ -1,12 +1,13 @@
 import email
 from enum import Enum
 from functools import lru_cache
-from urllib.parse import urlparse, parse_qs, urlencode
 import os
 from pathlib import Path
 import typing as t
 import shutil
 import sys, pdb, traceback
+
+from yarl import URL
 
 import click, cloup
 from click.core import ParameterSource
@@ -14,15 +15,15 @@ from click.core import ParameterSource
 class StrEnum(str, Enum):
     pass
 
-VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg")
-IMAGE_EXTS = (".jpg", ".png", ".webp", ".gif")
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg"}
+IMAGE_EXTS = {".jpg", ".png", ".webp", ".gif"}
 
-YOUTUBE_URL = "https://youtube.com/watch?v={id}"
+YOUTUBE_URL = URL("https://youtube.com/watch")
 YOUTUBE_DOMAINS = ("youtube.com", "youtube-nocookie.com")
 
 def is_interesting_link(href):
     "Return True if href is 'interesting', ie. might potentially point to preview media"
-    uri = urlparse(href)
+    uri = URL(href)
     if uri.scheme and uri.scheme not in ("http", "https"):
         return False
     if not uri.scheme:
@@ -34,33 +35,33 @@ def is_interesting_link(href):
     return True
 
 def is_image_link(href):
-    uri = urlparse(href)
+    uri = URL(href)
     return uri.path and any([uri.path.lower().endswith(ext) for ext in IMAGE_EXTS])
 
 def normalise_youtube_link(href):
-    uri = urlparse(href)
+    uri = URL(href)
     if uri.scheme and uri.scheme in ["http", "https"]:
         path = uri.path.strip("/")
-        qs = parse_qs(uri.query)
-        if any(uri.netloc.endswith(domain) for domain in YOUTUBE_DOMAINS):
+        if any(uri.host.endswith(domain) for domain in YOUTUBE_DOMAINS):
             if path == "oembed":
-                return normalise_youtube_link(qs["url"][0]) if "url" in qs else None
+                return "url" in uri.query and normalise_youtube_link(uri.query["url"])
             if path in ("watch", "embed"):
-                return YOUTUBE_URL.format(id=qs["v"][0]) if "v" in qs else None
+                return "v" in uri.query and str(YOUTUBE_URL.with_query(v=uri.query["v"]))
             if any(path.startswith(f"{x}/") for x in ["watch", "embed", "v", "e", "live", "shorts"]):
-                return YOUTUBE_URL.format(id=path.split("/")[-1])
+                return str(YOUTUBE_URL.with_query(v=path.split("/")[-1]))
         # Special case: youtube accepts URLs of the form http://youtu.be/{id}&feature=channel,
         # which don't have a ? to mark the query string. But it also accepts
         # ones with proper ? present.
-        if uri.netloc.endswith("youtu.be"):
-            return normalise_youtube_link(YOUTUBE_URL.format(id="&".join([path, urlencode(qs, doseq=True)])))
+        if uri.host.endswith("youtu.be"):
+            resolved = YOUTUBE_URL.with_query(f"v={uri.path[1:]}").update_query(uri.query)
+            return normalise_youtube_link(resolved)
     return None
 
 def normalise_video_link(href):
     if (out := normalise_youtube_link(href)):
         return out
-    uri = urlparse(href)
-    if uri.path and any([uri.path.lower().endswith(ext) for ext in VIDEO_EXTS]):
+    uri = URL(href)
+    if uri.path and set(uri.suffixes) & VIDEO_EXTS:
         return href
     return None
 

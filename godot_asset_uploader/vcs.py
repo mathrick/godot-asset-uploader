@@ -1,11 +1,12 @@
 from itertools import chain
 from pathlib import Path
-from urllib.parse import urlparse, urljoin
 
 from dulwich.repo import Repo as GitRepo
 import dulwich.porcelain as git
 from dulwich.errors import NotGitRepository
+
 import giturlparse
+from yarl import URL
 
 from . import config, errors as err
 from .rest_api import RepoProvider
@@ -125,16 +126,19 @@ def dispatch_url(guessers, docstring=None):
         dispatch.__doc__ = docstring
     return dispatch
 
+def guess_git_commit(root):
+    with git.open_repo_closing(root) as repo:
+        return repo.head().decode()
+
+guess_commit = dispatch_vcs({"git": guess_git_commit}, "Head commit extraction")
+
 def guess_git_repo_url(root):
     with git.open_repo_closing(root) as repo:
         remote, url = git_get_remote_repo(repo)
         parsed = giturlparse.parse(url or "")
         url = parsed.valid and parsed.url2https
         # Annoyingly, giturlparse always adds .git, so now we have to get rid of it
-        parsed_url = urlparse(url)
-        if parsed_url.path.endswith(".git"):
-            parsed_url = parsed_url._replace(path=parsed_url.path[:-4])
-        url = parsed_url.geturl()
+        url = url and str(URL(url).with_suffix(""))
         # Due to how dulwich returns the remote info, if a reasonable remote
         # wasn't found, the URL will be something nonsensical like "origin"
         # instead of None. Even if remote is found, the location could still be
@@ -153,9 +157,7 @@ def guess_git_issues_url(url):
     "Try to guess the issues URL based on the remote repo URL"
     provider = guess_git_repo_provider(url)
     if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB, RepoProvider.BITBUCKET]:
-        # Can't use urljoin because it's very sensitive to the trailing slash
-        parsed = urlparse(url)
-        return parsed._replace(path=str(Path(parsed.path) / "issues")).geturl()
+        return str(URL(url) / "issues")
     return None
 
 guess_issues_url = dispatch_url([guess_git_issues_url])
@@ -163,21 +165,15 @@ guess_issues_url = dispatch_url([guess_git_issues_url])
 def guess_git_download_url(url, commit):
     "Try to guess the download URL based on the remote repo URL"
     provider = guess_git_repo_provider(url)
-    parsed = urlparse(url)
-    path = Path(parsed.path)
+    parsed = URL(url)
     if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB]:
-        path = path / "archive" / f"{commit}.zip"
+        parsed = parsed / "archive" / f"{commit}.zip"
     elif provider == RepoProvider.BITBUCKET:
-        path = path / "get" / f"{commit}.zip"
+        parsed = parsed / "get" / f"{commit}.zip"
     else:
         return None
 
-    return parsed._replace(path=str(path)).geturl()
+    return str(parsed)
 
 guess_download_url = dispatch_url([guess_git_download_url])
 
-def guess_git_commit(root):
-    with git.open_repo_closing(root) as repo:
-        return repo.head().decode()
-
-guess_commit = dispatch_vcs({"git": guess_git_commit}, "Head commit extraction")

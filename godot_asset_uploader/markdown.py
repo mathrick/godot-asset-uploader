@@ -1,5 +1,4 @@
 from functools import wraps, partial
-from urllib.parse import urlparse
 import re
 
 from mistletoe import Document
@@ -10,6 +9,7 @@ from mistletoe.markdown_renderer import MarkdownRenderer, Fragment
 from mistletoe.ast_renderer import AstRenderer
 
 from validator_collection.checkers import is_url
+from yarl import URL
 
 from . import config
 from .errors import *
@@ -234,15 +234,14 @@ def get_asset_description(cfg: config.Config):
         previews.append({"type": "image", "link": token.src})
 
     def process_link(token):
-        print("got link", token.target)
-        uri = urlparse(token.target)
-        if not is_interesting_link(token.target):
+        uri = URL(token.target)
+        if not is_interesting_link(str(uri)):
             pass
-        elif (href := normalise_video_link(token.target)):
+        elif (href := normalise_video_link(str(uri))):
             previews.append({"type": "video", "link": href})
             return None
-        elif is_image_link(token.target):
-            previews.append({"type": "image", "link": token.target})
+        elif is_image_link(str(uri)):
+            previews.append({"type": "image", "link": str(uri)})
             return None
         # All links will be converted to autolink syntax, since the asset
         # library doesn't support any form of markup whatsoever
