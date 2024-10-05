@@ -2,10 +2,12 @@ import random
 import string
 
 import pytest
+import cloup
 
 from godot_asset_uploader.util import (
     VIDEO_EXTS,
     is_interesting_link, is_image_link, normalise_video_link,
+    prettyprint_list,
 )
 
 YOUTUBE_CANONICAL_URL = "https://youtube.com/watch?v={id}"
@@ -304,3 +306,15 @@ def test_normalise_video_link(path):
     for scheme, domain, query in random_url_parts():
         url = f"{scheme}://{domain}/{path}{query}"
         assert normalise_video_link(url) == None
+
+
+PRETTYPRINT_INPUTS = [
+    (["foo"                       ], "{}"                 ),
+    (["foo", "bar"                ], "{} and {}"          ),
+    (["foo", "bar", "baz"         ], "{}, {}, and {}"     ),
+    (["foo", "bar", "baz", "quux" ], "{}, {}, {}, and {}" ),
+]
+
+@pytest.mark.parametrize("input, expected_output", [([], "")] + PRETTYPRINT_INPUTS)
+def test_prettyprint_list(input, expected_output):
+    assert prettyprint_list(input) == expected_output.format(*input)
