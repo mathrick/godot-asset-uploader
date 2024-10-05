@@ -6,7 +6,7 @@ import sys
 
 import click, cloup
 from cloup.formatting import sep, HelpFormatter
-from cloup.constraints import If, require_any, require_all, IsSet
+from cloup.constraints import If, require_any, require_all
 from yarl import URL
 
 from . import vcs, config, rest_api
@@ -14,14 +14,13 @@ from .errors import *
 from .markdown import get_asset_description
 from .util import dict_merge, terminal_width, debug_on_error
 from .cli import (
-    OptionRequiredIfMissing, DynamicPromptOption, PriorityProcessingCommand,
-    RequireNamed,
-    readable_param_name, is_default_param,
+    DynamicPromptOption, PriorityProcessingCommand, RequireNamed, Cond,
+    optional, required_if_missing, readable_param_name, is_default_param,
 )
 
 CMD_EPILOGUE = """Most parameters can be inferred from the project repository,
 README.md, plugin.cfg, and the existing library asset (when performing
-an update). Missing information will be prompted for interactively,
+an update). Missing required options will be prompted for interactively,
 unless the '--assume-yes' or '-Y' flag was passed."""
 
 CONTEXT_SETTINGS = cloup.Context.settings(
@@ -130,33 +129,32 @@ def shared_options(cmd):
     )
     @cloup.option_group(
         "Asset metadata inputs",
-        option("--title", required_if_missing=["plugin", "url"], default=default_from_plugin("name", "title"),
-               help="Title / short description of the asset. "
-               "Required unless --plugin or update URL is provided", cls=OptionRequiredIfMissing),
-        option("--version", required_if_missing="plugin", default=preferred_from_plugin("version"),
-               help="Asset version. Required unless --plugin is provided", cls=OptionRequiredIfMissing),
-        option("--godot-version", required_if_missing="url",
-               help="Minimum Godot version asset is compatible with. "
-               "Required unless update URL is provided", cls=OptionRequiredIfMissing),
-        option("--licence", required_if_missing="url",
-               help="Asset's licence. Required unless update URL is provided", cls=OptionRequiredIfMissing),
+        option("--title", default=default_from_plugin("name", "title"), help="Title / short description of the asset"),
+        option("--version", default=preferred_from_plugin("version"), help="Asset version"),
+        option("--godot-version", help="Minimum Godot version asset is compatible with"),
+        option("--licence", help="Asset's licence"),
+        constraint=Cond("previous_payload", optional,
+                        "plugin", RequireNamed("godot_version", "licence"),
+                        else_=require_all),
     )
     @cloup.option_group(
         "Repository and download inputs",
-        option("--repo-url", metavar="URL", required_if_missing="url", default=default_repo_url,
-               help="Repository URL. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing),
-        option("--repo-provider", required_if_missing="url",
+        option("--repo-url", metavar="URL", default=default_repo_url,
+               help="Repository URL. Will be inferred from repo remote if possible."),
+        option("--repo-provider",
                type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
                default=default_repo_provider, callback=process_repo_provider,
-               help="Repository provider. Will be inferred from repo remote if possible.", cls=OptionRequiredIfMissing),
-        option("--issues-url", metavar="URL", required_if_missing="url", default=default_issues_url,
-               help="URL for reporting issues. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing),
+               help="Repository provider. Will be inferred from repo remote if possible."),
+        option("--issues-url", metavar="URL", default=default_issues_url,
+               help="URL for reporting issues. Will be inferred from repository URL possible."),
         option("--commit", metavar="COMMIT_ID", required=True, default=default_commit,
                help="Commit ID to upload. Will be inferred from current repo if possible."),
-        option("--download-url", metavar="URL", required_if_missing="url", default=default_download_url,
-               help="Download URL for asset's main ZIP. Will be inferred from repository URL possible.", cls=OptionRequiredIfMissing),
-        option("--icon-url", metavar="URL", required_if_missing="url", help="Icon URL", cls=OptionRequiredIfMissing),
+        option("--download-url", metavar="URL", default=default_download_url,
+               help="Download URL for asset's main ZIP. Will be inferred from repository URL possible."),
+        option("--icon-url", metavar="URL", help="Icon URL"),
+        constraint=required_if_missing("previous_payload"),
     )
+    @shared_auth_options
     @cloup.option_group(
         "Behaviour flags",
         option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
@@ -180,7 +178,6 @@ def shared_options(cmd):
                "Only explicitly provided values (either on command line or interactively) will be saved, "
                "inferred defaults will be skipped."),
     )
-    @shared_auth_options
     @root_arg
     @click.pass_context
     @wraps(cmd)
@@ -245,14 +242,14 @@ def shared_auth_options(cmd):
         "Authentication options",
         option("--token", default=saved_auth("token"), callback=process_auth,
                help="Token generated by an earlier login. Can be used instead of username and password."),
-        option("--username", default=saved_auth("username"), callback=process_auth,
+        option("--username", default=saved_auth("username"), prompt=True, callback=process_auth,
                help="Username to log in with. Will be prompted if not provided"),
         option("--password", hide_input=True, default=saved_auth("password"), callback=process_auth,
                help="Password to log in with. Will be prompted if not provided", cls=PasswordOption),
         option("--save-auth/--no-save-auth", default=True, show_default=True, prompt="Save your login token?",
                help="If true, the username and login token will be saved as gdasset-auth.toml in the project root. "
                "Auth information is saved separately from the config values, and the password is never saved."),
-        constraint=If(IsSet("token"), then=require_any.rephrased("optional"), else_=RequireNamed("username", "password"))
+        constraint=required_if_missing(["token"], "username", "password")
     )
     @click.pass_context
     @wraps(cmd)
@@ -439,6 +436,12 @@ class LoginCommand(PriorityProcessingCommand):
 
 @cli.command(cls=LoginCommand)
 @shared_auth_options
+
+@option("--assume-yes/--confirm", "-Y", "no_prompt",
+        default=False, show_default=True, is_eager=True,
+        help="Whether to confirm inferred default values interactively. "
+        "Values passed in on the command line are always taken as-is and not confirmed.")
+
 @root_arg
 @click.pass_obj
 def login(cfg, root, save_auth):

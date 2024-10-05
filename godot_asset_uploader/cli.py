@@ -1,22 +1,37 @@
+from functools import reduce
+from itertools import chain
+from typing import Sequence
+
 import click, cloup
 from click.core import ParameterSource
 from cloup.constraints import (
-    Constraint, UnsatisfiableConstraint, ConstraintViolated,
+    If, IsSet, AnySet, Constraint, UnsatisfiableConstraint, ConstraintViolated,
+    require_any, require_all
 )
-from cloup.constraints.common import format_param_list, get_params_whose_value_is_set
+from cloup.constraints.conditions import Predicate
+from cloup.constraints.common import format_param, format_param_list, get_params_whose_value_is_set
+from cloup._util import make_repr
 
-from .util import ensure_sequence, prettyprint_list
+from .util import dict_merge, ensure_sequence, batched, prettyprint_list
 
+optional = require_any.rephrased("optional")
 
 def readable_param_name(param):
     prefix = "" if param.param_type_name == "argument" else "--"
-    return f"'{prefix}{param.human_readable_name}'"
+    return f"{prefix}{param.human_readable_name}"
 
 def is_default_param(ctx, param):
     return ctx.get_parameter_source(param) in [
         ParameterSource.DEFAULT,
         ParameterSource.DEFAULT_MAP,
     ]
+
+def required_if_missing(names, * dependents, lenient=True):
+    if not isinstance(names, Predicate):
+        names = ensure_sequence(names)
+        names = (LenientAnySet if lenient else AnySet)(*names)
+    return If(names, then=optional,
+              else_=RequireNamed(*dependents) if dependents else require_all)
 
 
 class DynamicPromptOption(cloup.Option):
@@ -27,34 +42,6 @@ class DynamicPromptOption(cloup.Option):
             return self.get_default(ctx)
         else:
             return super().prompt_for_value(ctx)
-
-
-class OptionRequiredIfMissing(DynamicPromptOption):
-    """Dependent option which is required if the context does not have
-specified option(s) set"""
-
-    def __init__(self, *args, **kwargs):
-        try:
-            options = ensure_sequence(kwargs.pop("required_if_missing"))
-        except KeyError:
-            raise KeyError(
-                "OptionRequiredIfMissing needs the required_if_missing keyword argument"
-            )
-
-        super().__init__(*args, **kwargs)
-        self._options = options
-
-    def process_value(self, ctx, value):
-        required = not any(ctx.params.get(opt) for opt in self._options)
-        dep_value = super().process_value(ctx, value)
-        if required and dep_value is None:
-            opt_names = [readable_param_name(p) for p in ctx.command.params
-                         if p.name in self._options]
-            # opt_names might be empty, e.g. if the only option is 'url' and
-            # it's not taken by the currently processed command
-            msg = f"Required unless one of {', '.join(opt_names)} is provided" if opt_names else None
-            raise click.MissingParameter(ctx=ctx, param=self, message=msg)
-        return value
 
 
 class PriorityOptionParser(click.OptionParser):
@@ -97,6 +84,40 @@ class PriorityProcessingCommand(cloup.Command):
         return parser
 
 
+class LenientParamSetMixin():
+    """A mixin for AnySet and AllSet which makes them not complain if the
+listed commands do not exist in the current command"""
+    # Note: This goes a little into Cloup's internals, so we can avoid
+    # rewriting things too much. But it's probably also brittle
+    def _adjust_param_names(self, ctx):
+        self.param_names = [p for p in self.param_names if p in ctx.command._params_by_name]
+        return self.param_names
+
+    def negated_description(self, ctx):
+        if not self._adjust_param_names(ctx):
+            return ""
+        return super().negated_description(ctx)
+
+    def description(self, ctx):
+        if not self._adjust_param_names(ctx):
+            return ""
+        return super().description(ctx)
+
+    def __call__(self, ctx):
+        if not self._adjust_param_names(ctx):
+            return False
+        return super().__call__(ctx)
+
+
+class LenientAnySet(LenientParamSetMixin, AnySet):
+    pass
+
+
+class LenientIsSet(LenientParamSetMixin, IsSet):
+    def _adjust_param_names(self, ctx):
+        return self.param_name in ctx.command._params_by_name
+
+
 class RequireNamed(Constraint):
     """Cloup constraint requiring the listed parameters"""
     def __init__(self, *names):
@@ -105,13 +126,13 @@ class RequireNamed(Constraint):
     def _format_names(self, names, ctx):
         params = ctx.command.params
         param_names = [p.name for p in params]
-        param_names = [readable_param_name(params[param_names.index(name)])
+        param_names = [format_param(params[param_names.index(name)])
                        if name in param_names else name
                        for name in names]
         return prettyprint_list(param_names)
 
     def help(self, ctx: click.Context) -> str:
-        return f"parameters {self._format_names(self.names, ctx)} required"
+        return f"{self._format_names(self.names, ctx)} are required"
 
     def check_values(self, params, ctx):
         given = get_params_whose_value_is_set(params, ctx.params)
@@ -124,12 +145,63 @@ class RequireNamed(Constraint):
             )
 
     def check_consistency(self, params):
-        params = set([param.name for param in params])
-        names = set(self.names)
-        if not names <= params:
-            missing = params - names
+        param_names = set([param.name for param in params])
+        if not set(self.names) <= param_names:
+            missing = param_names - set(self.names)
             reason = (
-                f"the constraint requires parameters {prettyprint_list(names)}, "
+                f"the constraint requires parameters {prettyprint_list(missing)}, "
                 f"which have not been declared"
             )
             raise UnsatisfiableConstraint(self, params, reason)
+
+def as_predicate(thing):
+    if isinstance(thing, Predicate):
+        return thing
+    if isinstance(thing, str):
+        return LenientIsSet(thing)
+    if isinstance(thing, Sequence):
+        return LenientAnySet(*thing)
+    raise TypeError(f"Don't know how to convert {thing} to a Cloup predicate")
+
+class Cond(Constraint):
+    """Check a series of conditions, and execute the constraint of the
+first one that is satisfied. Optionally, an else_ might be given which
+will be taken if no other condition is satisfied"""
+    def __init__(self, *conditions, else_=None):
+        self._conditions = [(as_predicate(cond), branch)
+                            for cond, branch in batched(conditions, 2)]
+        if else_:
+            self._conditions.append((None, else_))
+
+    def help(self, ctx) -> str:
+        descriptions = [(f"if {desc} then " if cond else "") + branch.help(ctx)
+                        for cond, branch in self._conditions
+                        if (desc := not cond or cond.description(ctx))]
+        return prettyprint_list(descriptions, sep1=", otherwise ", sep2="; ", sep3="; otherwise ")
+
+    def check_consistency(self, params) -> None:
+        for cond, branch in self._conditions:
+            branch.check_consistency(params)
+
+    def check_values(self, params, ctx) -> None:
+        cond_is_true = None
+        for cond, branch in self._conditions:
+            if not cond or (cond_is_true := cond(ctx)):
+                try:
+                    branch.check_values(params, ctx)
+                    break
+                except ConstraintViolated as err:
+                    msg = "when {desc}, {err}".format(
+                            desc=cond.description(ctx) if cond_is_true else cond.negated_description(ctx),
+                            err=err
+                    ) if cond else f"no conditions were satisfied, and {err}"
+
+                    raise ConstraintViolated(
+                        msg, ctx=ctx, constraint=self, params=params
+                    )
+
+    def __repr__(self) -> str:
+        args = [{f"condition{i}" if cond else "else_": cond,
+                 f"branch{i}": branch}
+                for i, (cond, branch) in enumerate(self._conditions) ]
+        return make_repr(self, **reduce(dict_merge, args, {}))

@@ -1,6 +1,7 @@
 import email
 from enum import Enum
 from functools import lru_cache
+from itertools import islice
 import os
 import typing as t
 import shutil
@@ -93,23 +94,31 @@ def dict_merge(d1, d2):
     "Like d1.update(d2), but returns a new dict"
     return {k: d2.get(k, d1.get(k)) for k in set(d1) | set(d2)}
 
+def batched(iterable, n):
+    # batched('ABCDEFG', 3) → ABC DEF G
+    if n < 1:
+        raise ValueError('n must be at least one')
+    iterator = iter(iterable)
+    while batch := tuple(islice(iterator, n)):
+        yield batch
+
 def normalise_newlines(string):
     "Normalise \r and \r\n to \n"
     return "\n".join(string.splitlines())
 
-def prettyprint_list(elems):
+def prettyprint_list(elems, sep1=" and ", sep2=", ", sep3=", and"):
     """Return a string listing elems in a nice way, ie.:
     * foo
     * foo and bar
     * foo, bar, and baz
     """
-    if not elems:
-        return ""
-    *beg, end = map(str, elems)
-    msg = ", ".join(beg)
-    if len(beg) > 1:
-        msg += ","
-    return f"{msg} and {end}" if msg else end
+    elems = list(map(str, elems))
+    if len(elems) <= 1:
+        return "".join(elems)
+    if len(elems) == 2:
+        return sep1.join(elems)
+    else:
+        return f"{sep2.join(elems[:-1])}{sep3}{elems[-1]}"
 
 @lru_cache
 def is_typed_as(spec, x):
