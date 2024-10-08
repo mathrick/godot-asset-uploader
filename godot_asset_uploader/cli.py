@@ -1,20 +1,26 @@
 from functools import reduce
 from itertools import chain
+import sys
 from typing import Sequence
 
 import click, cloup
 from click.core import ParameterSource
+import cloup.constraints
 from cloup.constraints import (
-    If, IsSet, AnySet, Constraint, UnsatisfiableConstraint, ConstraintViolated,
-    require_any, require_all
+    IsSet, AnySet, Constraint as CloupConstraint, BoundConstraintSpec,
+    Rephraser as CloupRephraser, RequireAtLeast, require_all,
+    UnsatisfiableConstraint, ConstraintViolated,
 )
-from cloup.constraints.conditions import Predicate
-from cloup.constraints.common import format_param, format_param_list, get_params_whose_value_is_set
+from cloup.constraints._support import BoundConstraint
+from cloup.constraints.conditions import Predicate, ensure_constraints_support
+from cloup.constraints.common import (
+    format_param, format_param_list, get_param_name,
+    get_params_whose_value_is_set, param_value_is_set, get_required_params
+)
 from cloup._util import make_repr
 
 from .util import dict_merge, ensure_sequence, batched, prettyprint_list
 
-optional = require_any.rephrased("optional")
 
 def readable_param_name(param):
     prefix = "" if param.param_type_name == "argument" else "--"
@@ -33,8 +39,48 @@ def required_if_missing(names, * dependents, lenient=True):
     return If(names, then=optional,
               else_=RequireNamed(*dependents) if dependents else require_all)
 
+def as_predicate(thing):
+    if isinstance(thing, Predicate):
+        return thing
+    if isinstance(thing, str):
+        return LenientIsSet(thing)
+    if isinstance(thing, Sequence):
+        return LenientAnySet(*thing)
+    raise TypeError(f"Don't know how to convert {thing} to a Cloup predicate")
 
-class DynamicPromptOption(cloup.Option):
+def is_param_constrained_by(param, constraint, ctx):
+    if isinstance(constraint, (BoundConstraint, BoundConstraintSpec)):
+        constraint = constraint.constraint
+    for constr in ctx.command.all_constraints:
+        if constr.constraint is constraint and param in constr.params:
+            return True
+    return False
+
+def get_param_constraints(param, ctx):
+    return [constr.constraint for constr in ctx.command.all_constraints
+            if is_param_constrained_by(param, constr, ctx)]
+
+
+class QueryPromptMixin:
+    @property
+    def prompt(self):
+        _prompt = getattr(self, "_prompt", None)
+        if callable(_prompt):
+            try:
+                ctx = click.get_current_context()
+                return _prompt(self, ctx)
+            except RuntimeError:
+                pass
+        return _prompt
+
+    @prompt.setter
+    def prompt(self, value):
+        if callable(getattr(self, "_prompt", None)) and not callable(value):
+            return
+        self._prompt = value
+
+
+class DynamicPromptOption(QueryPromptMixin, cloup.Option):
     "Allow disabling prompting through command-line switch"
     def prompt_for_value(self, ctx):
         assert self.prompt is not None
@@ -84,9 +130,46 @@ class PriorityProcessingCommand(cloup.Command):
         return parser
 
 
+class ConstraintQueryMixin:
+    """cloup.Constraint mix-in which implements a protocol by which
+parameter's required status can be dynamically queried."""
+    def is_required(self, param, ctx):
+        raise NotImplementedError
+
+    def is_allowed(self, param, ctx):
+        raise NotImplementedError
+
+    def check_values(self, params, ctx):
+        try:
+            return all(
+                param_value_is_set(p, ctx.params[p.name]) for p in params if self.is_required(p, ctx)
+            ) and all(
+                self.is_allowed(p, ctx) for p in get_params_whose_value_is_set(params, ctx.params)
+            )
+        except NotImplementedError:
+            return super().check_values(params, ctx)
+
+    @classmethod
+    def auto_prompter(cls, text=None, /, when="required"):
+        if when not in ["required", "always"]:
+            raise ValueError(f"Invalid value for 'when' ('{when}'), allowed values are 'required' and 'always'")
+        def prompter(param, ctx):
+            if isinstance(cls, type):
+                constraints = get_param_constraints(param, ctx)
+            else:
+                constraints = [cls]
+            if not constraints:
+                return None
+            if (when == "always" or any(c.is_required(param, ctx) for c in constraints)) \
+               and all(c.is_allowed(param, ctx) for c in constraints):
+                return text or param.name.capitalize()
+
+        return prompter
+
+
 class LenientParamSetMixin():
     """A mixin for AnySet and AllSet which makes them not complain if the
-listed commands do not exist in the current command"""
+listed options do not exist in the current command"""
     # Note: This goes a little into Cloup's internals, so we can avoid
     # rewriting things too much. But it's probably also brittle
     def _adjust_param_names(self, ctx):
@@ -110,12 +193,45 @@ listed commands do not exist in the current command"""
 
 
 class LenientAnySet(LenientParamSetMixin, AnySet):
-    pass
+    # Unfortunately had to copy these from AnySet because they need tweaks
+    def __call__(self, ctx: click.Context) -> bool:
+        command = ensure_constraints_support(ctx.command)
+        params = command.get_params_by_name(self.param_names)
+        return any(param_value_is_set(param, ctx.params.get(get_param_name(param)))
+                   for param in params)
 
+    def __or__(self, other: Predicate) -> Predicate:
+        if isinstance(other, AnySet):
+            return LenientAnySet(*self.param_names, *other.param_names)
+        return super().__or__(other)
 
 class LenientIsSet(LenientParamSetMixin, IsSet):
     def _adjust_param_names(self, ctx):
         return self.param_name in ctx.command._params_by_name
+
+
+class ConstraintMixin(ConstraintQueryMixin):
+    def rephrased(self, help=None, error=None):
+        return Rephraser(self, help, error)
+
+    def hidden(self):
+        return Rephraser(self, help="")
+
+
+class Constraint(ConstraintMixin, CloupConstraint):
+    def rephrased(self, help=None, error=None):
+        return Rephraser(self, help, error)
+
+    def hidden(self):
+        return Rephraser(self, help="")
+
+
+class Rephraser(CloupRephraser):
+    def is_required(self, param, ctx):
+        return self.constraint.is_required(param, ctx)
+
+    def is_allowed(self, param, ctx):
+        return self.constraint.is_allowed(param, ctx)
 
 
 class RequireNamed(Constraint):
@@ -134,16 +250,6 @@ class RequireNamed(Constraint):
     def help(self, ctx: click.Context) -> str:
         return f"{self._format_names(self.names, ctx)} are required"
 
-    def check_values(self, params, ctx):
-        given = get_params_whose_value_is_set(params, ctx.params)
-        if not set(self.names) <= set([p.name for p in given]):
-            missing = [p for p in params if p not in given and p.name in self.names]
-            raise ConstraintViolated(
-                f"the following parameters are required:\n"
-                f"{format_param_list(missing)}",
-                ctx=ctx, constraint=self, params=params,
-            )
-
     def check_consistency(self, params):
         param_names = set([param.name for param in params])
         if not set(self.names) <= param_names:
@@ -154,14 +260,22 @@ class RequireNamed(Constraint):
             )
             raise UnsatisfiableConstraint(self, params, reason)
 
-def as_predicate(thing):
-    if isinstance(thing, Predicate):
-        return thing
-    if isinstance(thing, str):
-        return LenientIsSet(thing)
-    if isinstance(thing, Sequence):
-        return LenientAnySet(*thing)
-    raise TypeError(f"Don't know how to convert {thing} to a Cloup predicate")
+    def check_values(self, params, ctx):
+        given = get_params_whose_value_is_set(params, ctx.params)
+        if not set(self.names) <= set([p.name for p in given]):
+            missing = [p for p in params if p not in given and p.name in self.names]
+            raise ConstraintViolated(
+                f"the following parameters are required:\n"
+                f"{format_param_list(missing)}",
+                ctx=ctx, constraint=self, params=params,
+            )
+
+    def is_required(self, param, ctx) -> None:
+        return param.name in self.names
+
+    def is_allowed(self, param, ctx) -> None:
+        return True
+
 
 class Cond(Constraint):
     """Check a series of conditions, and execute the constraint of the
@@ -184,24 +298,72 @@ will be taken if no other condition is satisfied"""
             branch.check_consistency(params)
 
     def check_values(self, params, ctx) -> None:
-        cond_is_true = None
-        for cond, branch in self._conditions:
-            if not cond or (cond_is_true := cond(ctx)):
-                try:
-                    branch.check_values(params, ctx)
-                    break
-                except ConstraintViolated as err:
-                    msg = "when {desc}, {err}".format(
-                            desc=cond.description(ctx) if cond_is_true else cond.negated_description(ctx),
-                            err=err
-                    ) if cond else f"no conditions were satisfied, and {err}"
+        cond, branch = self.current_branch(ctx)
+        if not branch:
+            return
+        try:
+            branch.check_values(params, ctx)
+        except ConstraintViolated as err:
+            msg = "when {desc}, {err}".format(
+                    desc=cond.description(ctx),
+                    err=err
+            ) if cond else f"no conditions were satisfied, and {err}"
 
-                    raise ConstraintViolated(
-                        msg, ctx=ctx, constraint=self, params=params
-                    )
+            raise ConstraintViolated(
+                msg, ctx=ctx, constraint=self, params=params
+            )
+
+    def current_branch(self, ctx):
+        for cond, branch in self._conditions:
+            if not cond or cond(ctx):
+                return cond, branch
+        return None, None
+
+    def is_required(self, param, ctx) -> None:
+        _, branch = self.current_branch(ctx)
+        if branch:
+            return branch.is_required(param, ctx)
+        return False
+
+    def is_allowed(self, param, ctx) -> None:
+        _, branch = self.current_branch(ctx)
+        if branch:
+            return branch.is_allowed(param, ctx)
+        return True
 
     def __repr__(self) -> str:
         args = [{f"condition{i}" if cond else "else_": cond,
                  f"branch{i}": branch}
                 for i, (cond, branch) in enumerate(self._conditions) ]
         return make_repr(self, **reduce(dict_merge, args, {}))
+
+
+class If(Cond):
+    def __init__(self, condition, then, else_=None):
+        super().__init__(condition, then, else_=else_)
+
+
+class RequireAll(ConstraintQueryMixin, type(require_all)):
+    def is_required(self, param, ctx) -> None:
+        return is_param_constrained_by(param, self, ctx)
+
+    def is_allowed(self, param, ctx) -> None:
+        return True
+
+require_all = RequireAll()
+
+
+class RequireAtLeast(ConstraintMixin, cloup.constraints.RequireAtLeast):
+    def is_required(self, param, ctx):
+        params = []
+        for constr in ctx.command.all_constraints:
+            if constr.constraint is self and param in constr.params:
+                params = constr.params
+        count_set = len([p for p in params
+                         if param_value_is_set(p, ctx.params.get(p.name))])
+        return count_set < self.min_num_params
+
+    def is_allowed(self, param, ctx):
+        return True
+
+optional = RequireAtLeast(0).rephrased("optional")
