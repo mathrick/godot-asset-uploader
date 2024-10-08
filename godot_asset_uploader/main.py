@@ -284,6 +284,14 @@ token has been received from any source"""
             return super().prompt_for_value(ctx)
 
 
+@click.pass_context
+def login_and_update_token(ctx, force=False):
+    auth = ctx.obj.auth
+    if auth.token and not force:
+        return
+    json = rest_api.login(auth.username, auth.password)
+    auth.token = json["token"]
+    ctx.set_parameter_source("token", ctx.get_parameter_source("password"))
 
 def get_asset_payload(cfg: config.Config):
     """Based on CFG, get the payload dict for the asset suitable for posting to the
@@ -436,7 +444,7 @@ def update(ctx, previous_payload, save, save_auth):
     if cfg.dry_run:
         maybe_print("DRY RUN: no changes were made")
     elif confirmation:
-        rest_api.login_and_update_token(cfg)
+        login_and_update_token()
         for retry in range(1, -1, -1):
             try:
                 rest_api.upload_or_update_asset(cfg, payload)
@@ -446,7 +454,7 @@ def update(ctx, previous_payload, save, save_auth):
                     invalidate_token()
                     password_param = [p for p in ctx.command.params if p.name == "password"][0]
                     cfg.auth.password = cfg.auth.password or password_param.prompt_for_value(ctx)
-                    rest_api.login_and_update_token(cfg, force=True)
+                    login_and_update_token(force=True)
                     continue
                 raise
 
@@ -473,7 +481,7 @@ def login(cfg, root, save_auth):
 
 This is not required before using other commands, but can be used to save the generated token
 for future use, or test an existing token."""
-    rest_api.login_and_update_token(cfg, force=True)
+    login_and_update_token(force=True)
     maybe_print("Login successful")
     if save_auth:
         save_cfg(cfg.auth)

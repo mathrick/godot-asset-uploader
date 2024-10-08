@@ -197,9 +197,3 @@ def update_cfg_from_payload(cfg, json):
 def login(user, passwd):
     json = POST("login", data={"username": user, "password": passwd})
     return json
-
-def login_and_update_token(cfg, force=False):
-    if cfg.auth.token and not force:
-        return
-    json = login(cfg.auth.username, cfg.auth.password)
-    cfg.auth.token = json["token"]
