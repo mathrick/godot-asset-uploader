@@ -174,7 +174,6 @@ def shared_auth_options(cmd):
         option("--save-auth/--no-save-auth", default=True, show_default=True, prompt="Save your login token?",
                help="If true, the username and login token will be saved as gdasset-auth.toml in the project root. "
                "Auth information is saved separately from the config values, and the password is never saved."),
-        constraint=required_if_missing(["token"], "username", "password")
     )
     @constraint(If(~IsSet("token"), then=require_all), ["username", "password"])
     @click.pass_context
@@ -205,29 +204,29 @@ shared_update_options = make_options_decorator(
     ),
     cloup.option_group(
         "Asset metadata inputs",
-        option("--title", default=default_from_plugin("name", "title"), help="Title / short description of the asset"),
-        option("--version", default=preferred_from_plugin("version"), help="Asset version"),
-        option("--godot-version", help="Minimum Godot version asset is compatible with"),
-        option("--licence", help="Asset's licence"),
+        option("--title", default=default_from_plugin("name", "title"), prompt=True,
+               help="Title / short description of the asset"),
+        option("--version", default=preferred_from_plugin("version"), prompt=True, help="Asset version"),
+        option("--godot-version", prompt=True, help="Minimum Godot version asset is compatible with"),
+        option("--licence", prompt=True, help="Asset's licence"),
         constraint=Cond("previous_payload", optional,
                         "plugin", RequireNamed("godot_version", "licence"),
                         else_=require_all),
     ),
     cloup.option_group(
         "Repository and download inputs",
-        option("--repo-url", metavar="URL", default=default_repo_url,
+        option("--repo-url", metavar="URL", default=default_repo_url, prompt=True,
                help="Repository URL. Will be inferred from repo remote if possible."),
-        option("--repo-provider",
+        option("--repo-provider",  prompt=True, default=default_repo_provider, callback=process_repo_provider,
                type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
-               default=default_repo_provider, callback=process_repo_provider,
                help="Repository provider. Will be inferred from repo remote if possible."),
-        option("--issues-url", metavar="URL", default=default_issues_url,
+        option("--issues-url", metavar="URL", default=default_issues_url, prompt=True,
                help="URL for reporting issues. Will be inferred from repository URL possible."),
-        option("--commit", metavar="COMMIT_ID", required=True, default=default_commit,
+        option("--commit", metavar="COMMIT_ID", required=True, default=default_commit, prompt=True,
                help="Commit ID to upload. Will be inferred from current repo if possible."),
-        option("--download-url", metavar="URL", default=default_download_url,
+        option("--download-url", metavar="URL", default=default_download_url, prompt=True,
                help="Download URL for asset's main ZIP. Will be inferred from repository URL possible."),
-        option("--icon-url", metavar="URL", help="Icon URL"),
+        option("--icon-url", metavar="URL", prompt=True, help="Icon URL"),
         constraint=required_if_missing("previous_payload"),
     ),
     shared_auth_options,
