@@ -148,12 +148,12 @@ shared_behaviour_options = cloup.option_group(
     option("--preserve-html/--no-preserve-html", default=False, show_default=True,
            help="If true, raw HTML fragments in Markdown will be left as-is. "
            "Otherwise they will be omitted from the output."),
-    option("--assume-yes/--confirm", "-Y", "no_prompt",
-           default=False, show_default=True, is_eager=True,
+    option("--interactive/--non-interactive", "-Y", "no_prompt",
+           default=True, show_default=True, is_eager=True,
            help="Whether to confirm inferred default values interactively. "
            "Values passed in on the command line are always taken as-is and not confirmed."),
-    option("--quiet/--verbose", "-q", default=False, show_default=True,
-           help="If quiet, preview will not be printed."),
+    option("--quiet/--no-quiet", "-q", default=False, show_default=True,
+           help="If quiet, no preview or other messages will be printed. Implies --no-confirm"),
     option("--dry-run/--do-it", "-n", default=False, show_default=True,
            help="In dry run, assets will not actually be uploaded or updated."),
     option("--save/--no-save", default=True, show_default=True, prompt="Save your answers as defaults?",

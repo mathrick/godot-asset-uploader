@@ -140,6 +140,9 @@ file through your version control system."""
         if self.title is None:
             self.title = self.get_plugin_key("name")
 
+        if self.quiet:
+            self.no_prompt = True
+
     def validate(self):
         self.__post_init__()
 
