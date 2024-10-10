@@ -6,7 +6,7 @@ import sys
 
 import click, cloup
 from cloup.formatting import sep, HelpFormatter
-from cloup.constraints import constraint, IsSet
+from cloup.constraints import constraint
 from yarl import URL
 
 from . import vcs, config, rest_api
@@ -15,15 +15,15 @@ from .markdown import get_asset_description
 from .util import dict_merge, terminal_width, debug_on_error
 from .cli import (
     DynamicPromptOption, PriorityProcessingCommand,
-    Constraint, RequireNamed, If, Cond,
-    optional, required_if_missing, require_all,
+    Constraint, RequireNamed, If, LenientIsSet as IsSet, Cond,
+    optional, required_if_missing, require_all, accept_none,
     readable_param_name, is_default_param,
 )
 
 CMD_EPILOGUE = """Most parameters can be inferred from the project repository,
 README.md, plugin.cfg, and the existing library asset (when performing
 an update). Missing required options will be prompted for interactively,
-unless the '--assume-yes' or '-Y' flag was passed."""
+unless the '--non-interactive' or '--quiet' flag was passed."""
 
 CONTEXT_SETTINGS = cloup.Context.settings(
     align_option_groups=True,
@@ -95,10 +95,54 @@ def saved_default(key):
 
     return default_value
 
+@click.pass_obj
+def ensure_auth(cfg):
+    if not cfg.auth:
+        cfg.auth = config.Auth(cfg.root)
+        cfg.auth.try_load()
+
+def saved_auth(field):
+    @click.pass_obj
+    def default(cfg):
+        ensure_auth()
+        return getattr(cfg.auth, field, None)
+    return default
+
+@click.pass_context
+def have_explicit_auth(ctx, params=None):
+    params = params or ["token", "username", "password"]
+    return any(not is_default_param(ctx, param) for param in params)
+
+def process_auth(ctx, param, value):
+    ensure_auth()
+    return ctx.obj.auth.set(param.name, value, validate=False)
+
+
+@click.pass_context
+def invalidate_token(ctx):
+    ctx.obj.auth.set("token", None, validate=False)
+    ctx.params["token"] = None
+
+
+def process_password(ctx, param, value):
+    value = process_auth(ctx, param, value)
+    if not is_default_param(ctx, param):
+        # We need to invalidate the token if any password is passed in
+        invalidate_token()
+    return value
+
+
+def process_username(ctx, param, value):
+    previous = ctx.obj.auth.username
+    value = process_auth(ctx, param, value)
+    if previous and previous != value:
+        # We need to invalidate the token if the username has changed
+        invalidate_token()
+    return value
+
+
 def option(*args, **kwargs):
     kw = {"callback": process_param, "prompt": Constraint.auto_prompter()}
-    if any(kwargs.get(k) for k in ["required", "required_if_missing"]):
-        kw.update({"prompt": True})
     kw.update(kwargs)
     # This is the easiest way of robustly getting the name of the option that I
     # can think of, even if it's a bit inelegant
@@ -106,6 +150,7 @@ def option(*args, **kwargs):
     opt = opt_class(args, **kw)
     kw.setdefault("default", saved_default(opt.name))
     return cloup.option(*args, **kw, cls=opt_class)
+
 
 def make_options_decorator(*options):
     def decorate(cmd):
@@ -115,6 +160,7 @@ def make_options_decorator(*options):
 
         return wrapper(cmd)
     return decorate
+
 
 def invoke_with_cfg(cmd):
     @click.pass_context
@@ -129,53 +175,8 @@ def invoke_with_cfg(cmd):
 
     return make_cfg_and_call
 
-# IMPORTANT: this must be processed very early on, and by process_root(), since
-# it takes care of calling .try_load() to get any saved config values
-root_arg = cloup.argument(
-    "root", default=".", is_eager=True, callback=process_root,
-    help="Root of the project, meaning a directory containing the file 'gdasset.toml', "
-    "or a VCS repository (currently, only Git is supported). If not specified, it "
-    "will be determined automatically, starting at the current directory."
-)
 
-shared_behaviour_options = cloup.option_group(
-    "Behaviour flags",
-    option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
-           help="If true, all Markdown links will be converted to plain URLs. "
-           "This is the default, since the asset library does not support any form of markup. "
-           "If false, the original syntax, as used in the source Markdown file, will be preserved. "
-           "Does not affect processing links to images and videos."),
-    option("--preserve-html/--no-preserve-html", default=False, show_default=True,
-           help="If true, raw HTML fragments in Markdown will be left as-is. "
-           "Otherwise they will be omitted from the output."),
-    option("--interactive/--non-interactive", "-Y", "no_prompt",
-           default=True, show_default=True, is_eager=True,
-           help="Whether to confirm inferred default values interactively. "
-           "Values passed in on the command line are always taken as-is and not confirmed."),
-    option("--quiet/--no-quiet", "-q", default=False, show_default=True,
-           help="If quiet, no preview or other messages will be printed. Implies --no-confirm"),
-    option("--dry-run/--do-it", "-n", default=False, show_default=True,
-           help="In dry run, assets will not actually be uploaded or updated."),
-    option("--save/--no-save", default=True, show_default=True, prompt="Save your answers as defaults?",
-           help="If true, config will be saved as gdasset.toml in the project root. "
-           "Only explicitly provided values (either on command line or interactively) will be saved, "
-           "inferred defaults will be skipped."),
-)
-
-def shared_auth_options(cmd):
-    @cloup.option_group(
-        "Authentication options",
-        option("--token", default=saved_auth("token"), callback=process_auth,
-               help="Token generated by an earlier login. Can be used instead of username and password."),
-        option("--username", default=saved_auth("username"), callback=process_auth,
-               help="Username to log in with. Will be prompted if not provided"),
-        option("--password", hide_input=True, default=saved_auth("password"), callback=process_auth,
-               help="Password to log in with. Will be prompted if not provided", cls=PasswordOption),
-        option("--save-auth/--no-save-auth", default=True, show_default=True, prompt="Save your login token?",
-               help="If true, the username and login token will be saved as gdasset-auth.toml in the project root. "
-               "Auth information is saved separately from the config values, and the password is never saved."),
-    )
-    @constraint(If(~IsSet("token"), then=require_all), ["username", "password"])
+def invoke_with_auth(cmd):
     @click.pass_context
     @wraps(cmd)
     def make_auth_and_call(ctx, *args, **kwargs):
@@ -188,6 +189,82 @@ def shared_auth_options(cmd):
         ctx.invoke(cmd, *args, **kwargs)
 
     return make_auth_and_call
+
+
+# IMPORTANT: this must be processed very early on, and by process_root(), since
+# it takes care of calling .try_load() to get any saved config values
+root_arg = cloup.argument(
+    "root", default=".", is_eager=True, callback=process_root,
+    help="Root of the project, meaning a directory containing the file 'gdasset.toml', "
+    "or a VCS repository (currently, only Git is supported). If not specified, it "
+    "will be determined automatically, starting at the current directory."
+)
+
+INTERACTION_OPTIONS = [
+    option("--non-interactive/--interactive", "-Y", "no_prompt",
+           default=False, show_default=True, is_eager=True,
+           help="Whether to confirm inferred default values interactively. "
+           "Values passed in on the command line are always taken as-is and not confirmed."),
+    option("--quiet/--echo", "-q", default=False, show_default=True,
+           help="If quiet, no preview or other messages will be printed. Implies --non-interactive"),
+]
+
+interaction_options = cloup.option_group(
+    "Behaviour flags",
+    *INTERACTION_OPTIONS,
+)
+
+shared_behaviour_options = cloup.option_group(
+    "Behaviour flags",
+    option("--unwrap-links/--no-unwrap-links", default=True, show_default=True,
+           help="If true, all Markdown links will be converted to plain URLs. "
+           "This is the default, since the asset library does not support any form of markup. "
+           "If false, the original syntax, as used in the source Markdown file, will be preserved. "
+           "Does not affect processing links to images and videos."),
+    option("--preserve-html/--no-preserve-html", default=False, show_default=True,
+           help="If true, raw HTML fragments in Markdown will be left as-is. "
+           "Otherwise they will be omitted from the output."),
+    *INTERACTION_OPTIONS,
+    option("--dry-run/--do-it", "-n", default=False, show_default=True,
+           help="In dry run, assets will not actually be uploaded or updated."),
+    option("--save/--no-save", default=True, show_default=True, prompt="Save your answers as defaults?",
+           help="If true, config will be saved as gdasset.toml in the project root. "
+           "Only explicitly provided values (either on command line or interactively) will be saved, "
+           "inferred defaults will be skipped."),
+)
+
+def auth_param_required(param, ctx):
+    return any()
+
+SHORT_AUTH_OPTIONS = [
+    option("--username", default=saved_auth("username"),
+           required=Constraint.auto_require(), callback=process_auth,
+           help="Username to log in with. Will be prompted if not provided"),
+    option("--password", hide_input=True, default=saved_auth("password"),
+           required=Constraint.auto_require(), callback=process_auth, prompt_required=False,
+           help="Password to log in with. Will be prompted if not provided"),
+    option("--save-auth/--no-save-auth", default=have_explicit_auth, show_default=True, prompt="Save your login token?",
+           help="If true, the username and login token will be saved as gdasset-auth.toml in the project root. "
+           "Auth information is saved separately from the config values, and the password is never saved."),
+]
+
+# Used by login()
+short_auth_options = cloup.option_group(
+    "Authentication options",
+    *SHORT_AUTH_OPTIONS,
+    constraint=require_all,
+)
+
+# Used by update() and upload()
+shared_auth_options = cloup.option_group(
+    "Authentication options",
+    option("--token", default=saved_auth("token"), callback=process_auth,
+           help="Token generated by an earlier login. Can be used instead of username and password."),
+    *SHORT_AUTH_OPTIONS,
+    constraint=If(IsSet("token"), then=accept_none, else_=RequireNamed("username", "password")).rephrased(
+        "either --token or --username and --password are required, but not both"
+    ),
+)
 
 shared_update_options = make_options_decorator(
     cloup.option_group(
@@ -235,54 +312,6 @@ shared_update_options = make_options_decorator(
 )
 
 
-@click.pass_obj
-def ensure_auth(cfg):
-    if not cfg.auth:
-        cfg.auth = config.Auth(cfg.root)
-        cfg.auth.try_load()
-
-def saved_auth(field):
-    @click.pass_obj
-    def default(cfg):
-        ensure_auth()
-        return getattr(cfg.auth, field, None)
-    return default
-
-def process_auth(ctx, param, value):
-    ensure_auth()
-    return ctx.obj.auth.set(param.name, value, validate=False)
-
-@click.pass_context
-def invalidate_token(ctx):
-    ctx.obj.auth.set("token", None, validate=False)
-    ctx.params["token"] = None
-
-def process_password(ctx, param, value):
-    value = process_auth(ctx, param, value)
-    if not is_default_param(ctx, param):
-        # We need to invalidate the token if any password is passed in
-        invalidate_token()
-    return value
-
-def process_username(ctx, param, value):
-    previous = ctx.obj.auth.username
-    value = process_auth(ctx, param, value)
-    if previous and previous != value:
-        # We need to invalidate the token if the username has changed
-        invalidate_token()
-    return value
-
-
-class PasswordOption(DynamicPromptOption):
-    """--password needs special processing, since we shouldn't prompt for it if a
-token has been received from any source"""
-    def prompt_for_value(self, ctx):
-        if ctx.obj.auth.token:
-            return None
-        else:
-            return super().prompt_for_value(ctx)
-
-
 @click.pass_context
 def login_and_update_token(ctx, force=False):
     auth = ctx.obj.auth
@@ -328,9 +357,11 @@ merged with another dict to provide missing values (this is the case for updates
     }
 
 @click.pass_context
-def save_cfg(ctx, cfg):
-    cfg.save(exclude={param for param in ctx.params
-                      if is_default_param(ctx, param)})
+def save_cfg(ctx, cfg, include_defaults=False):
+    exclude = {
+        param for param in ctx.params if is_default_param(ctx, param)
+    } if not include_defaults else {}
+    cfg.save(exclude=exclude)
 
 def maybe_print(msg, *args, pager=False, **kwargs):
     ctx = click.get_current_context(silent=True)
@@ -390,6 +421,7 @@ class UploadCommand(PriorityProcessingCommand):
 @cli.command(epilog=CMD_EPILOGUE, cls=UploadCommand)
 @shared_update_options
 @invoke_with_cfg
+@invoke_with_auth
 @click.pass_context
 def upload(ctx, save, save_auth):
     """Upload a new asset to the library"""
@@ -404,6 +436,43 @@ def process_update_url(ctx, _, url):
         return payload
     return {}
 
+
+def retry_with_auth(max_retries=1):
+    """Decorator which authenticates, runs the wrapped block, and retries up to
+MAX_RETRIES times. If a HTTPRequestError occurs, it will attempt to
+re-authenticate, then retry."""
+    @click.pass_context
+    def runit(ctx, block):
+        cfg = ctx.obj
+        force = False
+        for retry in range(max_retries, -1, -1):
+            try:
+                have_username = not is_default_param(ctx, "username")
+                have_password = not is_default_param(ctx, "password")
+                have_full_auth = have_username and have_password
+                # If we're given one, we'll disregard the token and require full auth info
+                if (have_username or have_password) and (force or not have_full_auth):
+                    if not have_username:
+                        cfg.auth.username = click.prompt("Username", default=cfg.auth.username)
+                    if not have_password:
+                        cfg.auth.password = click.prompt("Password", hide_input=True)
+                    have_full_auth = True
+
+                login_and_update_token(force=force or have_full_auth)
+                block()
+                break
+            except HTTPRequestError as exc:
+                # Don't bother retrying if we have full auth, since in this case
+                # we've already tried a fresh token
+                if retry and not cfg.no_prompt and not have_full_auth:
+                    printerr(exc)
+                    invalidate_token()
+                    force = True
+                    continue
+                raise
+    return runit
+
+
 class UpdateCommand(PriorityProcessingCommand):
     PRIORITY_LIST = SHARED_PRIORITY_LIST + ["url"]
     PRIORITY_ADJUSTMENTS = SHARED_PRIORITY_ADJUSTMENTS
@@ -413,6 +482,7 @@ class UpdateCommand(PriorityProcessingCommand):
                 help="Either the full URL to an asset in the library, or an ID (such as '3133'), which will be looked up")
 @shared_update_options
 @invoke_with_cfg
+@invoke_with_auth
 @click.pass_context
 def update(ctx, previous_payload, save, save_auth):
     """Update an existing asset in the library"""
@@ -426,9 +496,9 @@ def update(ctx, previous_payload, save, save_auth):
 
     # NB: We can't use merge_asset_payload() for comparisons because of the
     # special processing it does to previews
-    if dict_merge(previous_payload, payload) == previous_payload:
+    if (rest_api.is_payload_same(dict_merge(previous_payload, payload), previous_payload)):
         maybe_print("No changes from the existing asset listing, not updating")
-    if any(rest_api.is_payload_same_as_pending(previous_payload, payload, edit)
+    elif any(rest_api.is_payload_same_as_pending(payload, previous_payload, edit)
            for edit in pending):
         maybe_print("There is already a pending edit for this asset with identical changes, not updating")
     else:
@@ -442,48 +512,36 @@ def update(ctx, previous_payload, save, save_auth):
 
     if cfg.dry_run:
         maybe_print("DRY RUN: no changes were made")
+
     elif confirmation:
-        login_and_update_token()
-        for retry in range(1, -1, -1):
-            try:
-                rest_api.upload_or_update_asset(cfg, payload)
-            except HTTPRequestError as exc:
-                if retry and (not cfg.no_prompt or cfg.auth.password):
-                    printerr(exc)
-                    invalidate_token()
-                    password_param = [p for p in ctx.command.params if p.name == "password"][0]
-                    cfg.auth.password = cfg.auth.password or password_param.prompt_for_value(ctx)
-                    login_and_update_token(force=True)
-                    continue
-                raise
+        @retry_with_auth()
+        def _():
+            rest_api.upload_or_update_asset(cfg, payload)
 
     if save_auth:
-        save_cfg(cfg.auth)
+        save_cfg(cfg.auth, include_defaults=True)
 
 class LoginCommand(PriorityProcessingCommand):
     PRIORITY_LIST = SHARED_PRIORITY_LIST + ["url"]
     PRIORITY_ADJUSTMENTS = SHARED_PRIORITY_ADJUSTMENTS
 
 @cli.command(cls=LoginCommand)
-@shared_auth_options
-
-@option("--assume-yes/--confirm", "-Y", "no_prompt",
-        default=False, show_default=True, is_eager=True,
-        help="Whether to confirm inferred default values interactively. "
-        "Values passed in on the command line are always taken as-is and not confirmed.")
-
+@short_auth_options
+@interaction_options
 @root_arg
 @invoke_with_cfg
+@invoke_with_auth
 @click.pass_obj
 def login(cfg, root, save_auth):
     """Log into the asset library using the provided credentials
 
 This is not required before using other commands, but can be used to save the generated token
-for future use, or test an existing token."""
-    login_and_update_token(force=True)
-    maybe_print("Login successful")
-    if save_auth:
-        save_cfg(cfg.auth)
+for future use."""
+    @retry_with_auth()
+    def _():
+        maybe_print("Login successful")
+        if save_auth:
+            save_cfg(cfg.auth, include_defaults=True)
 
 def printerr(msg):
     maybe_print(f"ERROR: {msg}", file=sys.stderr)

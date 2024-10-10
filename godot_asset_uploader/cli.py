@@ -1,6 +1,7 @@
 from functools import reduce
 from itertools import chain
 import sys
+from textwrap import dedent
 from typing import Sequence
 
 import click, cloup
@@ -8,7 +9,7 @@ from click.core import ParameterSource
 import cloup.constraints
 from cloup.constraints import (
     IsSet, AnySet, Constraint as CloupConstraint, BoundConstraintSpec,
-    Rephraser as CloupRephraser, RequireAtLeast, require_all,
+    Rephraser as CloupRephraser, require_all, accept_none,
     UnsatisfiableConstraint, ConstraintViolated,
 )
 from cloup.constraints._support import BoundConstraint
@@ -20,6 +21,7 @@ from cloup.constraints.common import (
 from cloup._util import make_repr
 
 from .util import dict_merge, ensure_sequence, batched, prettyprint_list
+from .evil import patch_function_code
 
 
 def readable_param_name(param):
@@ -60,18 +62,19 @@ def get_param_constraints(param, ctx):
     return [constr.constraint for constr in ctx.command.all_constraints
             if is_param_constrained_by(param, constr, ctx)]
 
+def maybe_invoke_with_ctx(self, value):
+    if callable(value):
+        try:
+            ctx = click.get_current_context()
+            return value(self, ctx)
+        except RuntimeError:
+            pass
+    return value
 
 class QueryPromptMixin:
     @property
     def prompt(self):
-        _prompt = getattr(self, "_prompt", None)
-        if callable(_prompt):
-            try:
-                ctx = click.get_current_context()
-                return _prompt(self, ctx)
-            except RuntimeError:
-                pass
-        return _prompt
+        return maybe_invoke_with_ctx(self, getattr(self, "_prompt", None))
 
     @prompt.setter
     def prompt(self, value):
@@ -80,7 +83,28 @@ class QueryPromptMixin:
         self._prompt = value
 
 
-class DynamicPromptOption(QueryPromptMixin, cloup.Option):
+class QueryRequiredMixin:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Needed for our hacky Constraint.auto_require() business
+        self.parsing_started = False
+
+    def consume_value(self, ctx, opts):
+        self.parsing_started = True
+        return super().consume_value(ctx, opts)
+
+    @property
+    def required(self):
+        return maybe_invoke_with_ctx(self, getattr(self, "_required", None))
+
+    @required.setter
+    def required(self, value):
+        if callable(getattr(self, "_required", None)) and not callable(value):
+            return
+        self._required = value
+
+
+class DynamicPromptOption(QueryPromptMixin, QueryRequiredMixin, cloup.Option):
     "Allow disabling prompting through command-line switch"
     def prompt_for_value(self, ctx):
         assert self.prompt is not None
@@ -165,6 +189,28 @@ parameter's required status can be dynamically queried."""
                 return text or param.name.capitalize()
 
         return prompter
+
+    @classmethod
+    def auto_require(cls):
+        def require(param, ctx):
+            if isinstance(cls, type):
+                constraints = get_param_constraints(param, ctx)
+            else:
+                constraints = [cls]
+            # NB: we don't do the computations until we have
+            # param.parsing_started, otherwise things like
+            # accept_none.consistency_checks get unhappy because they might get
+            # required=True on some unexpected arguments, depending on how
+            # conditions are set up
+            if not constraints or not param.parsing_started:
+                return None
+            return any(
+                c.is_required(param, ctx) for c in constraints
+            ) and all(
+                c.is_allowed(param, ctx) for c in constraints
+            )
+
+        return require
 
 
 class LenientParamSetMixin():
@@ -367,3 +413,32 @@ class RequireAtLeast(ConstraintMixin, cloup.constraints.RequireAtLeast):
         return True
 
 optional = RequireAtLeast(0).rephrased("optional")
+
+
+class AcceptAtMost(ConstraintMixin, cloup.constraints.AcceptAtMost):
+    def is_required(self, param, ctx):
+        return False
+
+    def is_allowed(self, param, ctx):
+        params = []
+        for constr in ctx.command.all_constraints:
+            if constr.constraint is self and param in constr.params:
+                params = constr.params
+        count_set = len([p for p in params
+                         if param_value_is_set(p, ctx.params.get(p.name))])
+        return count_set < self.max_num_params
+
+accept_none = AcceptAtMost(0)
+
+@patch_function_code(
+    cloup.constraints.common.param_value_by_name,
+    dedent("""\
+    def param_value_by_name(ctx: Context, name: str) -> Any:
+        try:
+            return ctx.params[name]
+        except KeyError:
+            raise KeyError(f'"{name}" is not the name of a CLI parameter')
+    """)
+)
+def param_value_by_name(ctx, name):
+    return ctx.params.get(name)

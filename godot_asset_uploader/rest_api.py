@@ -126,17 +126,25 @@ asset. Edits will be merged with the original payload info."""
             for edit in [GET("asset", "edit", edit_id)]]
 
 
-def is_payload_same_as_pending(previous, payload, pending):
+def is_payload_same(payload, reference):
+    payload = dict(**payload)
+    reference = dict(**reference)
     def normalise(previews):
         return [{
             "type": p["type"],
             "link": p["link"],
-            "thumbnail": p.get("thumbnail") or p["link"]
+            "thumbnail": p.get("thumbnail") or p["link"],
         } for p in previews]
 
     def unmangle(v):
         return normalise_newlines(v).strip("\n") if isinstance(v, str) else v
 
+    payload["previews"] = normalise(payload["previews"])
+    reference["previews"] = normalise(reference["previews"])
+    return (p1 := {k: unmangle(v) for k, v in payload.items()}) == (p2 := {k: unmangle(v) for k, v in reference.items()})
+
+
+def is_payload_same_as_pending(payload, previous, pending):
     keys = (set(payload) | set(pending)) - {
         # These are only present in edits, except for category, which
         # for some reason is empty there
@@ -144,15 +152,16 @@ def is_payload_same_as_pending(previous, payload, pending):
         'category', 'status', 'reason', 'support_level',
     }
     payload = dict_merge(previous, payload)
-    payload["previews"] = normalise(payload["previews"])
     pending = dict_merge(previous, pending)
-    pending["previews"] = normalise(pending["previews"])
-    return not [k for k in keys if unmangle(payload.get(k)) != unmangle(pending.get(k))]
+    return is_payload_same({k: v for k, v in payload.items() if k in keys},
+                           {k: v for k, v in pending.items() if k in keys})
 
 
 def merge_asset_payload(new, old=None):
     old = old or {}
-    volatile = ["download_commit", "version_string"]
+    volatile = ["download_commit", "version_string", "version",
+                "type", "category", "rating", "support_level", "searchable",
+                "author", "author_id", "modify_date",]
     special = ["previews"]
     payload = {k: v for k, v in old.items() if k not in volatile + special}
     payload.update({k: v for k, v in new.items() if k not in special})
@@ -167,11 +176,12 @@ def merge_asset_payload(new, old=None):
             return {"operation": "delete",
                     "edit_preview_id": p_old["preview_id"]}
 
-        return dict(**{"enabled": True,
-                       "type": p_new["type"],
+        return dict(**{"enabled": True,},
+                    **op,
+                    **{"type": p_new["type"],
                        "link": p_new["link"],
-                       "thumbnail": p_new.get("thumbnail")},
-                    **op)
+                       "thumbnail": p_new.get("thumbnail", p_new["link"])},
+                    )
 
     payload["previews"] = [calculate_preview(p_new, p_old)
                            for p_new, p_old in zip_longest(new.get("previews", []), old.get("previews", []))
