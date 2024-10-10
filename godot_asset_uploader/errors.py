@@ -4,6 +4,10 @@ class GdAssetError(Exception):
 class HTTPRequestError(GdAssetError):
     pass
 
+class NoImplementationError(GdAssetError):
+    "Signalled when existing functionality lacks an implementation for a specific case"
+    pass
+
 class BadRepoError(GdAssetError):
     def __init__(repo_type, path, details):
         self.repo_type = repo_type

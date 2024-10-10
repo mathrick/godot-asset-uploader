@@ -9,7 +9,8 @@ from dulwich.errors import NotGitRepository
 import giturlparse
 from yarl import URL
 
-from . import config, errors as err
+from . import config
+from .errors import *
 from .rest_api import RepoProvider
 
 GITHUB_BASE_CONTENT_URL = URL("https://raw.githubusercontent.com/$owner/$repo/$commit/")
@@ -196,10 +197,12 @@ https://raw.githubusercontent.com/owner/repo/commit/docs/dev/relative/path"""
     parsed = giturlparse.parse(provider_url or "")
     if provider == RepoProvider.GITHUB:
         base_url = GITHUB_BASE_CONTENT_URL
-    if provider == RepoProvider.BITBUCKET:
-        raise GdAssetError(f"Don't know how to resolve relative URL ({relative_path}) in BitBucket repos")
-    if provider == RepoProvider.GITLAB:
+    elif provider == RepoProvider.BITBUCKET:
+        raise NoImplementationError(f"Don't know how to resolve relative URL ({relative_path}) in BitBucket repos")
+    elif provider == RepoProvider.GITLAB:
         base_url = GITLAB_BASE_CONTENT_URL
+    else:
+        raise GdAssetError(f"Unexpected repo provider '{provider}', this is a bug")
     if path_offset:
         base_url = base_url / path_offset
     template = Template(str(base_url / relative_path))

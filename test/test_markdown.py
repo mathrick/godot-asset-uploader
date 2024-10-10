@@ -3,6 +3,7 @@ import pytest
 import yaml
 from yarl import URL
 
+from godot_asset_uploader.errors import NoImplementationError
 from godot_asset_uploader.config import Config
 from godot_asset_uploader import vcs
 from godot_asset_uploader.markdown import (
@@ -37,10 +38,7 @@ def hack_pyyaml_multiline_strings():
 ])
 @pytest.mark.parametrize("repo_url", [
     "https://github.com/dummy-user/dummy-repo",
-    pytest.param(
-        "https://dummy-user@bitbucket.org/dummy-user/dummy-repo",
-        marks=pytest.mark.xfail
-    ),
+    "https://dummy-user@bitbucket.org/dummy-user/dummy-repo",
     "https://gitlab.com/dummy-user/dummy-repo",
     "https://gitlab.self-hosted.com/dummy-user/dummy-repo",
 ])
@@ -65,9 +63,16 @@ def test_get_asset_description(request, data_regression, datadir, readme, change
             return vcs.resolve_with_base_url(repo_url, url, cfg.commit)
         return url
 
-    description, previews = get_asset_description(
-        cfg, prep_image_func=prep_image_url, prep_link_func=prep_link_url
-    )
+    try:
+        description, previews = get_asset_description(
+            cfg, prep_image_func=prep_image_url, prep_link_func=prep_link_url
+        )
+    except NoImplementationError as err:
+        if "bitbucket.org" in repo_url:
+            pytest.xfail("BitBucket doesn't have a clear way to resolve relative URLs")
+        else:
+            raise
+
     data_regression.check({
         # Record execution params for easier inspection
         "PARAMS": {k: v for k, v in locals().items() if k in request.node.callspec.params},
