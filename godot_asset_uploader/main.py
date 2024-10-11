@@ -3,6 +3,7 @@ from functools import wraps
 from inspect import signature
 from io import StringIO
 import sys
+import textwrap
 
 import click, cloup
 from cloup.formatting import sep, HelpFormatter
@@ -33,6 +34,10 @@ CONTEXT_SETTINGS = cloup.Context.settings(
     ),
 )
 
+SEP = "=" * terminal_width()
+MINISEP = "-" * terminal_width()
+
+
 @cloup.group(context_settings=CONTEXT_SETTINGS)
 def cli():
     """Automatically upload or update an asset in Godot Asset Library
@@ -49,6 +54,20 @@ def process_root(ctx, param, value):
 # Generic process callback to update config
 def process_param(ctx, param, value):
     return ctx.obj.set(param.name, value)
+
+
+def process_category(ctx, param, value):
+    try:
+        return ctx.obj.set(param.name, int(value))
+    except ValueError:
+        return ctx.obj.set(param.name, rest_api.find_category_id(value))
+
+
+@click.pass_obj
+def default_category(cfg):
+    group, name = rest_api.CATEGORY_ID_MAP[rest_api.OFFICIAL_LIBRARY_ROOT].get(int(cfg.category), (None, None))
+    return f"{group}/{name}" if name else cfg.category
+
 
 @click.pass_obj
 def default_repo_provider(cfg):
@@ -285,9 +304,11 @@ shared_update_options = make_options_decorator(
                help="Title / short description of the asset"),
         option("--version", default=preferred_from_plugin("version"), prompt=True, help="Asset version"),
         option("--godot-version", prompt=True, help="Minimum Godot version asset is compatible with"),
+        option("--category", default=default_category, callback=process_category, prompt=True,
+               help="Asset's category. See the 'list' subcommand for possible choices"),
         option("--licence", prompt=True, help="Asset's licence"),
         constraint=Cond("previous_payload", optional,
-                        "plugin", RequireNamed("godot_version", "licence"),
+                        "plugin", RequireNamed("godot_version", "category", "licence"),
                         else_=require_all),
     ),
     cloup.option_group(
@@ -345,6 +366,7 @@ merged with another dict to provide missing values (this is the case for updates
         "title": cfg.title,
         "description": description,
         "godot_version": cfg.godot_version,
+        "category_id": cfg.category,
         "version_string": cfg.version,
         "cost": cfg.licence,
         "download_provider": cfg.repo_provider.value,
@@ -375,27 +397,31 @@ def maybe_print(msg, *args, pager=False, **kwargs):
 
 def summarise_payload(cfg, payload):
     with StringIO() as buf:
-        sep = "=" * terminal_width()
-        minisep = "-" * terminal_width()
         def p(*args, **kwargs):
             print(*args, **kwargs, file=buf)
 
-        p(sep)
+        category_id = int(payload["category_id"])
+        group, name = rest_api.CATEGORY_ID_MAP[rest_api.OFFICIAL_LIBRARY_ROOT][category_id]
+        category = f"{group}/{name}"
+
+        p(SEP)
         p(payload["title"])
         p("Version:", payload["version_string"])
         p("Licence:", payload["cost"])
         p()
+        p("Category:", category)
+        p("Godot version:", payload["godot_version"])
         p("Download provider:", payload["download_provider"])
         p("Repo/browse URL:", payload["browse_url"])
         p("Issues URL:", payload["download_url"])
         p("Commit:", payload["download_commit"])
         p("Download URL:", payload["download_url"])
-        p(minisep)
+        p(MINISEP)
         p()
         for line in payload["description"].splitlines():
             p(line)
         p()
-        p(minisep)
+        p(MINISEP)
         ops = {
             "delete": " (deleted)",
             "insert": " (new)",
@@ -406,7 +432,7 @@ def summarise_payload(cfg, payload):
             p("Previews:")
             for type, link, op in previews:
                 p(f"  {type}{op}: {link}")
-        p(sep)
+        p(SEP)
         maybe_print(buf.getvalue(), pager=not cfg.no_prompt)
 
 SHARED_PRIORITY_ADJUSTMENTS = [
@@ -517,6 +543,8 @@ def update(ctx, previous_payload, save, save_auth):
         @retry_with_auth()
         def _():
             rest_api.upload_or_update_asset(cfg, payload)
+    else:
+        maybe_print("Aborted!")
 
     if save_auth:
         save_cfg(cfg.auth, include_defaults=True)
@@ -542,6 +570,40 @@ for future use."""
         maybe_print("Login successful")
         if save_auth:
             save_cfg(cfg.auth, include_defaults=True)
+
+
+@cli.group()
+def list():
+    "Show known values and choices"
+    pass
+
+
+CATEGORIES_EPILOGUE = """\
+Categories can be specified either by group/name (i.e. "Addons/Misc"), or by
+numeric ID, as listed above. Names are not case-sensitive and can be shortened
+as long as they're unique, and the group can be dropped, i.e. "ad/mi" and "misc" are
+both equivalent.\
+"""
+
+@list.command(epilog=CATEGORIES_EPILOGUE)
+def categories():
+    "Show asset categories in known libraries"
+    p = click.echo
+    p("Asset categories in known asset libraries")
+    p(SEP)
+    p()
+    for lib, categories in rest_api.KNOWN_LIBRARY_CATEGORIES.items():
+        p(lib)
+        p(MINISEP)
+        for group, names in categories.items():
+            p(f"  {group}")
+            for id, name in names.items():
+                p(f"{id: 6}: {name}")
+        p()
+
+    for line in textwrap.wrap(CATEGORIES_EPILOGUE, width=terminal_width()):
+        p(line)
+
 
 def printerr(msg):
     maybe_print(f"ERROR: {msg}", file=sys.stderr)

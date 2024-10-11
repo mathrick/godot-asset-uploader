@@ -65,8 +65,8 @@ def normalise_video_link(href):
 def is_youtube_link(href):
     return normalise_youtube_link(href) is not None
 
-def terminal_width():
-    return shutil.get_terminal_size().columns
+def terminal_width(max_width=100):
+    return min(shutil.get_terminal_size().columns, max_width)
 
 def debug_on_error():
     # copied from pdbpp.xpm(), to provide a portable fallback in case pdbpp is

@@ -242,7 +242,12 @@ class LenientAnySet(LenientParamSetMixin, AnySet):
     # Unfortunately had to copy these from AnySet because they need tweaks
     def __call__(self, ctx: click.Context) -> bool:
         command = ensure_constraints_support(ctx.command)
-        params = command.get_params_by_name(self.param_names)
+        params = []
+        for param in self.param_names:
+            try:
+                params.append(command.get_param_by_name(param))
+            except KeyError:
+                pass
         return any(param_value_is_set(param, ctx.params.get(get_param_name(param)))
                    for param in params)
 

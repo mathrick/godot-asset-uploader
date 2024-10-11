@@ -104,6 +104,7 @@ file through your version control system."""
 
     version: Optional[str] = None
     godot_version: Optional[str] = None
+    category: Optional[int] = None
     licence: Optional[str] = None
 
     title: Optional[str] = None

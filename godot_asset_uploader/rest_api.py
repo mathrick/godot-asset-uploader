@@ -1,6 +1,8 @@
 from dataclasses import replace
+from enum import Enum
 from itertools import dropwhile, islice, zip_longest, count
 import math
+import re
 
 import dirtyjson
 from validator_collection.checkers import is_integer, is_url
@@ -11,25 +13,62 @@ from .util import StrEnum, dict_merge, normalise_newlines
 from .errors import *
 
 OFFICIAL_LIBRARY_ROOT = URL("https://godotengine.org/")
+OFFICIAL_LIBRARY_ROOT = URL("http://localhost:8080/")
 # FIXME: This is not actually stated anywhere in the docs, but circumstancial
 # evidence suggests that categories and their ids are specific to the given
 # library. This will need refactoring if other libraries ever become a thing
-OFFICIAL_LIBRARY_CATEGORIES = {
-    "Addons": {
-        1: "2D Tools",
-        2: "3D Tools",
-        3: "Shaders",
-        4: "Materials",
-        5: "Tools",
-        6: "Scripts",
-        7: "Misc"
-    },
-    "Projects": {
-        8: "Templates",
-        9: "Projects",
-        10: "Demos",
-    },
+KNOWN_LIBRARY_CATEGORIES = {
+    OFFICIAL_LIBRARY_ROOT: {
+        "Addons": {
+            1: "2D Tools",
+            2: "3D Tools",
+            3: "Shaders",
+            4: "Materials",
+            5: "Tools",
+            6: "Scripts",
+            7: "Misc"
+        },
+        "Projects": {
+            8: "Templates",
+            9: "Projects",
+            10: "Demos",
+        },
+    }
 }
+
+CATEGORY_ID_MAP = {
+    lib: {
+        id: (group, name)
+        for group, names in categories.items()
+        for id, name in names.items()
+    } for lib, categories in KNOWN_LIBRARY_CATEGORIES.items()
+}
+
+def find_category_id(designator, library=OFFICIAL_LIBRARY_ROOT):
+    """Find a category id from a possibly shorthand designator, such as 'Addons/Misc',
+'a/2d' or 'proj'"""
+    if len(parts := [x.lower() for x in re.split('[/_ ]', designator, maxsplit=1)]) == 2:
+        group_cand, name_cand = parts
+    elif len(parts) == 1:
+        (name_cand,) = parts
+        group_cand = ""
+    else:
+        raise ValueError(f"Can't interpret '{designator}' as an asset category")
+
+    candidates = {
+        f"{group}/{name}": id for group, names in KNOWN_LIBRARY_CATEGORIES[library].items()
+        for id, name in names.items()
+        if group.lower().startswith(group_cand)
+        and name.lower().startswith(name_cand)
+    }
+    if not candidates:
+        raise ValueError(f"Value '{designator}' could not be matched to an asset category")
+    if len(candidates) > 1:
+        raise ValueError(f"Ambiguous category '{designator}': could be any of {', '.join(candidates)}")
+
+    (cand_id,) = candidates.values()
+    return cand_id
+
 
 # FIXME: Support other providers
 class RepoProvider(StrEnum):
@@ -46,10 +85,12 @@ class RepoProvider(StrEnum):
                 return member
         return None
 
+
 def resp_json(resp):
     """Like requests.response.json(), but uses dirtyjson to be more
 resilient to PHP's bullshit that we get back"""
     return dirtyjson.loads(resp.content)
+
 
 def guess_asset_id(id_or_url):
     "Attempt to guess asset id from what might be an existing URL"
@@ -139,8 +180,8 @@ def is_payload_same(payload, reference):
     def unmangle(v):
         return normalise_newlines(v).strip("\n") if isinstance(v, str) else v
 
-    payload["previews"] = normalise(payload["previews"])
-    reference["previews"] = normalise(reference["previews"])
+    payload["previews"] = normalise(payload.get("previews", []))
+    reference["previews"] = normalise(reference.get("previews", []))
     return (p1 := {k: unmangle(v) for k, v in payload.items()}) == (p2 := {k: unmangle(v) for k, v in reference.items()})
 
 
