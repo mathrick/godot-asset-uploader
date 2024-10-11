@@ -69,6 +69,10 @@ def find_category_id(designator, library=OFFICIAL_LIBRARY_ROOT):
     (cand_id,) = candidates.values()
     return cand_id
 
+def find_category_name(id, library=OFFICIAL_LIBRARY_ROOT):
+    if not id:
+        return (None, None)
+    return CATEGORY_ID_MAP[OFFICIAL_LIBRARY_ROOT].get(int(id), (None, None))
 
 # FIXME: Support other providers
 class RepoProvider(StrEnum):

@@ -44,12 +44,15 @@ def cli():
 based on the project repository."""
     pass
 
+
 def process_repo_provider(ctx, param, provider):
     return ctx.obj.set("repo_provider", vcs.RepoProvider(provider.upper()))
+
 
 def process_root(ctx, param, value):
     val = process_param(ctx, param, value)
     ctx.obj.try_load()
+
 
 # Generic process callback to update config
 def process_param(ctx, param, value):
@@ -65,7 +68,7 @@ def process_category(ctx, param, value):
 
 @click.pass_obj
 def default_category(cfg):
-    group, name = rest_api.CATEGORY_ID_MAP[rest_api.OFFICIAL_LIBRARY_ROOT].get(int(cfg.category), (None, None))
+    group, name = rest_api.find_category_name(cfg.category)
     return f"{group}/{name}" if name else cfg.category
 
 
@@ -190,7 +193,7 @@ def invoke_with_cfg(cmd):
         cmd_kwargs = set(signature(cmd).parameters)
         for kw in cfg_kwargs - cmd_kwargs:
             kwargs.pop(kw, None)
-        ctx.invoke(cmd, *args, **kwargs)
+        cmd(*args, **kwargs)
 
     return make_cfg_and_call
 
@@ -205,7 +208,7 @@ def invoke_with_auth(cmd):
         cmd_kwargs = set(signature(cmd).parameters)
         for kw in auth_kwargs - cmd_kwargs:
             kwargs.pop(kw, None)
-        ctx.invoke(cmd, *args, **kwargs)
+        cmd(*args, **kwargs)
 
     return make_auth_and_call
 
@@ -448,10 +451,11 @@ class UploadCommand(PriorityProcessingCommand):
 @shared_update_options
 @invoke_with_cfg
 @invoke_with_auth
-@click.pass_context
-def upload(ctx, save, save_auth):
+def upload(save, save_auth):
     """Upload a new asset to the library"""
-    ctx.invoke(update, previous_payload={})
+    # NB: Cannot just use ctx.forward(update) because of https://github.com/pallets/click/issues/2753
+    # I.e. this MUST be broken out to a shared function that isn't a click command
+    upload_or_update(previous_payload={}, save=save, save_auth=save_auth)
 
 def process_update_url(ctx, _, url):
     if url is not None:
@@ -499,19 +503,10 @@ re-authenticate, then retry."""
     return runit
 
 
-class UpdateCommand(PriorityProcessingCommand):
-    PRIORITY_LIST = SHARED_PRIORITY_LIST + ["url"]
-    PRIORITY_ADJUSTMENTS = SHARED_PRIORITY_ADJUSTMENTS
-
-@cli.command(epilog=CMD_EPILOGUE, cls=UpdateCommand)
-@cloup.argument("previous_payload", metavar="URL", required=True, callback=process_update_url,
-                help="Either the full URL to an asset in the library, or an ID (such as '3133'), which will be looked up")
-@shared_update_options
-@invoke_with_cfg
-@invoke_with_auth
 @click.pass_context
-def update(ctx, previous_payload, save, save_auth):
-    """Update an existing asset in the library"""
+def upload_or_update(ctx, previous_payload, save, save_auth):
+    """Shared implementation for the upload and update commands. Needs to be broken
+out to a non-command function because of https://github.com/pallets/click/issues/2753"""
     cfg = ctx.obj
     payload = get_asset_payload(cfg)
     pending = []
@@ -548,6 +543,20 @@ def update(ctx, previous_payload, save, save_auth):
 
     if save_auth:
         save_cfg(cfg.auth, include_defaults=True)
+
+class UpdateCommand(PriorityProcessingCommand):
+    PRIORITY_LIST = SHARED_PRIORITY_LIST + ["url"]
+    PRIORITY_ADJUSTMENTS = SHARED_PRIORITY_ADJUSTMENTS
+
+@cli.command(epilog=CMD_EPILOGUE, cls=UpdateCommand)
+@cloup.argument("previous_payload", metavar="URL", required=True, callback=process_update_url,
+                help="Either the full URL to an asset in the library, or an ID (such as '3133'), which will be looked up")
+@shared_update_options
+@invoke_with_cfg
+@invoke_with_auth
+def update(previous_payload, save, save_auth):
+    """Update an existing asset in the library"""
+    upload_or_update(previous_payload=previous_payload, save=save, save_auth=save_auth)
 
 class LoginCommand(PriorityProcessingCommand):
     PRIORITY_LIST = SHARED_PRIORITY_LIST + ["url"]

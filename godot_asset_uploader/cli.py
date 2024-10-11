@@ -29,7 +29,7 @@ def readable_param_name(param):
     return f"{prefix}{param.human_readable_name}"
 
 def is_default_param(ctx, param):
-    return ctx.get_parameter_source(param) in [
+    return not (source := ctx.get_parameter_source(param)) or source in [
         ParameterSource.DEFAULT,
         ParameterSource.DEFAULT_MAP,
     ]
