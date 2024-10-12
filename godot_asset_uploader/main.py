@@ -481,7 +481,7 @@ re-authenticate, then retry."""
                 have_password = not is_default_param(ctx, "password")
                 have_full_auth = have_username and have_password
                 # If we're given one, we'll disregard the token and require full auth info
-                if (have_username or have_password) and (force or not have_full_auth):
+                if force or (have_username or have_password and not have_full_auth):
                     if not have_username:
                         cfg.auth.username = click.prompt("Username", default=cfg.auth.username)
                     if not have_password:
