@@ -13,7 +13,6 @@ from .util import StrEnum, dict_merge, normalise_newlines
 from .errors import *
 
 OFFICIAL_LIBRARY_ROOT = URL("https://godotengine.org/")
-OFFICIAL_LIBRARY_ROOT = URL("http://localhost:8080/")
 # FIXME: This is not actually stated anywhere in the docs, but circumstancial
 # evidence suggests that categories and their ids are specific to the given
 # library. This will need refactoring if other libraries ever become a thing
