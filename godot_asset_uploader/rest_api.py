@@ -4,7 +4,6 @@ from itertools import dropwhile, islice, zip_longest, count
 import math
 import re
 
-from bs4 import BeautifulSoup
 import dirtyjson
 from validator_collection.checkers import is_integer, is_url
 import requests
@@ -113,60 +112,32 @@ def guess_asset_id(id_or_url):
                     pass
     raise GdAssetError(f"{id_or_url} is not a valid asset ID or asset URL")
 
+def get_library_url(*path):
+    return str(OFFICIAL_LIBRARY_ROOT.joinpath(*["asset-library", "api"], *path))
 
-def get_library_url(*path, workaround=False):
-    return str(OFFICIAL_LIBRARY_ROOT.joinpath("asset-library", *([] if workaround else ["api"]), *path))
-
-
-def api_request(meth, *url, workaround=False, data=None, params=None, headers=None, cookies=None):
+def api_request(meth, *url, data=None, params=None, headers=None):
     headers = headers or {}
-    if not workaround:
-        headers.update({'Accept': 'application/json'})
-    resp = requests.request(meth, get_library_url(*url, workaround=workaround),
-                            data=data, headers=headers, params=params, cookies=cookies)
+    headers.update({'Accept': 'application/json'})
+    resp = requests.request(meth, get_library_url(*url), data=data, headers=headers, params=params)
     try:
         resp.raise_for_status()
     except requests.HTTPError:
         try:
-            if not workaround:
-                detail = resp_json(resp).get("error", "")
-                detail = detail and f": {detail}"
-            else:
-                detail = f": {resp.reason}"
+            detail = resp_json(resp).get("error", "")
+            detail = detail and f": {detail}"
         except dirtyjson.error.Error:
             detail = ""
         raise HTTPRequestError(f"'{resp.request.method}' API request to '{'/'.join(url)}' failed with code {resp.status_code}{detail}")
     try:
-        return resp_json(resp) if not workaround else resp
+        return resp_json(resp)
     except dirtyjson.error.Error:
         return {}
-
-
-def get_csrf_for_workaround(token, *url):
-    """Get CSRF token to work around bugs in asset library by selectively sending things as an HTML
-form instead of using the REST API.
-
-Cf. https://github.com/godotengine/godot-asset-library/issues/343 for context"""
-    cookies = {"token": token}
-    resp = requests.get(get_library_url(*url, workaround=True), cookies=cookies)
-    soup = BeautifulSoup(resp.text, "html.parser")
-    resp.cookies.update(cookies)
-    return (
-        resp.cookies,
-        {
-            "csrf_name": soup.select("form input[name=csrf_name]")[0].attrs["value"],
-            "csrf_value": soup.select("form input[name=csrf_value]")[0].attrs["value"],
-        }
-    )
-
 
 def GET(*url, params=None, headers=None):
     return api_request("get", *url, params=params, headers=headers)
 
-
 def POST(*url, data=None, params=None, headers=None):
     return api_request("post", *url, data=data, params=params, headers=headers)
-
 
 def get_paginated(*url, params=None, headers=None, max_pages=None):
     result = []
@@ -276,22 +247,9 @@ def upload_or_update_asset(cfg, json, workaround=True):
     json = dict(json)
     url = ("asset", json["asset_id"]) if "asset_id" in json else ("asset",)
     if workaround:
-        cookies, csrf = get_csrf_for_workaround(cfg.auth.token, *url, "edit" if "asset_id" in json else "submit")
-        json.update(csrf)
         json.update(massage_previews_for_workaround(json.pop("previews", [])))
-        resp = api_request("post", *url, data=json, workaround=True, cookies=cookies)
-        try:
-            loc, id = URL(resp.url).parts[-2:]
-            # not int(...) is technically unsafe if the int can equal 0, but
-            # edit IDs start at 1, so it's fine
-            if loc != "asset" or not int(id):
-                raise ValueError
-        except ValueError:
-            raise HTTPRequestError(f"'{resp.request.method}' request with HTML form workaround to '{'/'.join(url)}' "
-                                   "did not return expected data, upload probably failed")
-    else:
-        json["token"] = cfg.auth.token
-        POST(*url, data=json)
+    json["token"] = cfg.auth.token
+    POST(*url, data=json)
 
 
 def update_cfg_from_payload(cfg, json):
