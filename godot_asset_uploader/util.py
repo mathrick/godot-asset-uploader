@@ -106,7 +106,7 @@ def normalise_newlines(string):
     "Normalise \r and \r\n to \n"
     return "\n".join(string.splitlines())
 
-def prettyprint_list(elems, sep1=" and ", sep2=", ", sep3=", and"):
+def prettyprint_list(elems, sep1=" and ", sep2=", ", sep3=", and "):
     """Return a string listing elems in a nice way, ie.:
     * foo
     * foo and bar
