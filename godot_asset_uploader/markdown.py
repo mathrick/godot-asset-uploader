@@ -213,13 +213,13 @@ images, video, and HTML fragments"""
         pass
 
     def render_markdown_directive(self, token, max_line_length=None):
-        raise NotImplementedError
+        return self.blocks_to_lines(token.children, max_line_length=max_line_length)
 
     def render_directive(self, token, max_line_length=None):
         item = token.children[0]
         if item.tag == "changelog":
             if not self.config.changelog.exists():
-                raise GdAssetError(f"Changelog file {config.changelog} not found")
+                raise GdAssetError(f"Changelog file {self.config.changelog} not found")
             with self.config.changelog.open() as changelog_file:
                 changelog = None
                 for child in Document(changelog_file).children:
@@ -227,7 +227,7 @@ images, video, and HTML fragments"""
                         changelog = child
                         break
                 else:
-                    raise GdAssetError("Changelog file {config.changelog} does not contain a list")
+                    raise GdAssetError("Changelog file {self.config.changelog} does not contain a list")
 
                 par = Paragraph([item.attrs["heading"] + ":"])
                 par.line_number = token.line_number
