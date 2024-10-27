@@ -3,7 +3,7 @@ import re
 
 from mistletoe import Document
 from mistletoe.core_tokens import MatchObj
-from mistletoe.block_token import BlockToken, List, Paragraph
+from mistletoe.block_token import BlockToken, List, Paragraph, tokenize
 from mistletoe.span_token import SpanToken, AutoLink
 from mistletoe.markdown_renderer import MarkdownRenderer, Fragment
 from mistletoe.ast_renderer import AstRenderer
@@ -46,7 +46,7 @@ class ExtendedAutoLink(AutoLink):
     # https://github.github.com/gfm/#autolinks-extension-
     pattern = re.compile("(?:^|[\\s*_~(])(http(s)?://[^\\s\a\b\f\n\r\t\v<>]+)")
     entity_ref_pattern = re.compile("&[a-zA-Z0-9]+;$")
-    parse_inner=False
+    parse_inner = False
 
     @classmethod
     def find(cls, string):
@@ -72,12 +72,14 @@ class ExtendedAutoLink(AutoLink):
                 candidates.append(match)
         return candidates
 
+START_REGEX_TEMPLATE = "^[^<]*<!-- *gdasset: *{epilogue}$"
+
 class Directive(BlockToken):
-    START_REGEX = re.compile("^[^<]*<!--- (.*?)( -->)?$")
+    START_REGEX = re.compile(START_REGEX_TEMPLATE.format(epilogue=r"(\w+)( -->)?"))
     END_REGEX = re.compile("^(.*) -->")
 
-    def __init__(self, match):
-        self.children = [MetaItem(match)]
+    def __init__(self, lines):
+        self.children = [MetaItem(lines)]
 
     @property
     def content(self):
@@ -86,7 +88,12 @@ class Directive(BlockToken):
     @classmethod
     def start(cls, line):
         result = cls.START_REGEX.match(line)
-        return result
+        return result and cls.directive_name(result)
+
+    @classmethod
+    def directive_name(cls, match):
+        words = match.group(1).split()
+        return words[0] if words else None
 
     @classmethod
     def read(cls, lines):
@@ -97,16 +104,33 @@ class Directive(BlockToken):
         for line in lines:
             line = line.strip()
             if (match := cls.END_REGEX.search(line)):
-                if match.group(1) is not None:
+                if match.group(1):
                     buf.append(match.group(1))
                     break
             buf.append(line.strip())
         return buf
 
 
+class MarkdownDirective(Directive):
+    START_REGEX = re.compile(START_REGEX_TEMPLATE.format(epilogue="(markdown) *"))
+    END_REGEX = re.compile("^ *-->")
+
+    def __init__(self, lines):
+        self.children = tokenize(lines)
+
+    @classmethod
+    def read(cls, lines):
+        next(lines)
+        buf = []
+        for line in lines:
+            if cls.END_REGEX.search(line):
+                break
+            buf.append(line)
+        return buf
+
 class DebugRenderer(AstRenderer):
     def __init__(self):
-        super().__init__(Directive, ExtendedAutoLink)
+        super().__init__(ExtendedAutoLink, Directive, MarkdownDirective)
 
 class Renderer(MarkdownRenderer):
     def __init__(self, config,
@@ -117,7 +141,7 @@ class Renderer(MarkdownRenderer):
         self.link_callback = link_callback
         self.html_callback = html_callback
         self.suppressed = []
-        super().__init__(Directive, ExtendedAutoLink, **kwargs)
+        super().__init__(ExtendedAutoLink, Directive, MarkdownDirective, **kwargs)
 
     def suppress(self, token):
         if token not in self.suppressed:
@@ -188,6 +212,9 @@ images, video, and HTML fragments"""
     def render_html_block(self, token, max_line_length=None):
         pass
 
+    def render_markdown_directive(self, token, max_line_length=None):
+        raise NotImplementedError
+
     def render_directive(self, token, max_line_length=None):
         item = token.children[0]
         if item.tag == "changelog":
@@ -206,20 +233,18 @@ images, video, and HTML fragments"""
                 par.line_number = token.line_number
                 to_render = [par] if "heading" in item.attrs else []
 
-                if item.value:
-                    changelog.children = changelog.children[:int(item.value)]
+                if (num := item.attrs.get("items")):
+                    changelog.children = changelog.children[:int(num)]
 
                 to_render.append(changelog)
                 # Needed to set child.parent properly
                 token.children = to_render
                 return self.blocks_to_lines(to_render, max_line_length=max_line_length)
-        if item.tag == "gdasset":
-            if not item.value or item.value not in ("include", "exclude"):
-                raise GdAssetError(f"The 'gdasset' directive must have a value of 'include' or 'exclude' on line {token.line_number}")
-            if item.value == "exclude":
-                self.suppress(token.parent)
-            else:
-                self.unsuppress(token.parent)
+        if item.tag == "exclude":
+            self.suppress(token.parent)
+            return []
+        if item.tag == "include":
+            self.unsuppress(token.parent)
             return []
 
         raise GdAssetError(f"Unsupported directive: '{item.tag}'")
