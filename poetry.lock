@@ -181,6 +181,16 @@ files = [
 ]
 
 [[package]]
+name = "decorators"
+version = "2.0.7"
+description = "Quickly create flexible Python decorators"
+optional = false
+python-versions = "*"
+files = [
+    {file = "decorators-2.0.7.tar.gz", hash = "sha256:9cf26202d6170a5cdca8a9cf6cd4b467c10601d4a9076470bceb9d282a5fa28a"},
+]
+
+[[package]]
 name = "dirtyjson"
 version = "1.0.8"
 description = "JSON decoder for Python that can extract data from the muck"
@@ -694,6 +704,16 @@ image = ["numpy", "pillow"]
 num = ["numpy", "pandas"]
 
 [[package]]
+name = "python-hglib"
+version = "2.6.2"
+description = "Mercurial Python library"
+optional = false
+python-versions = "*"
+files = [
+    {file = "python-hglib-2.6.2.tar.gz", hash = "sha256:b18bd1ed53c90ee57d5714d66ad6bb72b64e930d4aeca9830892c08bb28da608"},
+]
+
+[[package]]
 name = "pywin32-ctypes"
 version = "0.2.3"
 description = "A (partial) reimplementation of pywin32 using ctypes/cffi"
@@ -1129,4 +1149,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8,<3.14"
-content-hash = "ce5d4f07fcdbbe9fda5303ba61b85d1e6a2f94f3718037e452400ce62453e7d9"
+content-hash = "015eb9b20781d9db94595d6c199d2897ba6869fa5d1190d005f157596c9a95a2"

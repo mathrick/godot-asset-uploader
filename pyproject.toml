@@ -28,6 +28,8 @@ giturlparse = "^0.12.0"
 cloup = "^3.0.5"
 dirtyjson = "^1.0.8"
 yarl = "^1.13.1"
+python-hglib = "^2.6.2"
+decorators = "^2.0.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
