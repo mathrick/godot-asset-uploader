@@ -299,7 +299,7 @@ class RequireNamed(Constraint):
         return prettyprint_list(param_names)
 
     def help(self, ctx: click.Context) -> str:
-        return f"{self._format_names(self.names, ctx)} are required"
+        return f"{self._format_names(self.names, ctx)} {'are' if len(self.names) > 1 else 'is'} required"
 
     def check_consistency(self, params):
         param_names = set([param.name for param in params])
