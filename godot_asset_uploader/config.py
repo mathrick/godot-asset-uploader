@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, fields, MISSING, asdict
+from dataclasses import dataclass, fields, MISSING, asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, ClassVar
@@ -6,7 +6,7 @@ from typing import Optional, ClassVar
 import tomlkit, tomlkit.toml_file
 from tomlkit.exceptions import NonExistentKey
 
-from .errors import *
+from .errors import GdAssetError
 from .util import is_typed_as
 
 def toml_path_encoder(path):
@@ -164,11 +164,16 @@ file through your version control system."""
             self._parsed_plugin = tomlkit.parse(self.plugin.read_text())
         if self._parsed_plugin is not None:
             try:
-                return self._parsed_plugin.get(f"plugin", {})[key]
+                return self._parsed_plugin.get("plugin", {})[key]
             except NonExistentKey as e:
-                raise GdAssetError(f"Could not read {self.plugin.relative_to(self.root)}: {e.args[0]}")
+                raise GdAssetError(
+                    f"Could not read {self.plugin.relative_to(self.root)}: {e.args[0]}"
+                )
             except KeyError as e:
-                raise GdAssetError(f"Could not read {self.plugin.relative_to(self.root)}: Key {e.args[0]} does not exist.")
+                raise GdAssetError(
+                    f"Could not read {self.plugin.relative_to(self.root)}: "
+                    f"Key {e.args[0]} does not exist."
+                )
         return default
 
 

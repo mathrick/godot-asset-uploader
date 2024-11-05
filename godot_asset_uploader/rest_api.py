@@ -1,7 +1,5 @@
 from dataclasses import replace
-from enum import Enum
 from itertools import dropwhile, islice, zip_longest, count
-import math
 import re
 
 import dirtyjson
@@ -10,7 +8,7 @@ import requests
 from yarl import URL
 
 from .util import StrEnum, dict_merge, normalise_newlines
-from .errors import *
+from .errors import GdAssetError, HTTPRequestError
 
 OFFICIAL_LIBRARY_ROOT = URL("https://godotengine.org/")
 # FIXME: This is not actually stated anywhere in the docs, but circumstancial
@@ -127,7 +125,10 @@ def api_request(meth, *url, data=None, params=None, headers=None):
             detail = detail and f": {detail}"
         except dirtyjson.error.Error:
             detail = ""
-        raise HTTPRequestError(f"'{resp.request.method}' API request to '{'/'.join(url)}' failed with code {resp.status_code}{detail}")
+        raise HTTPRequestError(
+            f"'{resp.request.method}' API request to '{'/'.join(url)}' failed with code "
+            f"{resp.status_code}{detail}"
+        )
     try:
         return resp_json(resp)
     except dirtyjson.error.Error:
@@ -159,7 +160,7 @@ asset. Edits will be merged with the original payload info."""
     # because asset/edit listings lack commits and previews
     ids = [edit["edit_id"]
            for edit in get_paginated("asset", "edit", params={
-                   "asset": guess_asset_id(asset_id), "status": "new in_review"
+                "asset": guess_asset_id(asset_id), "status": "new in_review"
            })]
     return [dict_merge(edit["original"],
                        # Need to normalise strings heavily because
@@ -173,6 +174,7 @@ asset. Edits will be merged with the original payload info."""
 def is_payload_same(payload, reference):
     payload = dict(**payload)
     reference = dict(**reference)
+
     def normalise(previews):
         return [{
             "type": p["type"],
@@ -185,7 +187,9 @@ def is_payload_same(payload, reference):
 
     payload["previews"] = normalise(payload.get("previews", []))
     reference["previews"] = normalise(reference.get("previews", []))
-    return (p1 := {k: unmangle(v) for k, v in payload.items()}) == (p2 := {k: unmangle(v) for k, v in reference.items()})
+    p1, p2 = ({k: unmangle(v) for k, v in p.items()}
+              for p in [payload, reference])
+    return p1 == p2
 
 
 def is_payload_same_as_pending(payload, previous, pending):
@@ -220,7 +224,7 @@ def merge_asset_payload(new, old=None):
             return {"operation": "delete",
                     "edit_preview_id": p_old["preview_id"]}
 
-        return dict(**{"enabled": True,},
+        return dict(**{"enabled": True},
                     **op,
                     **{"type": p_new["type"],
                        "link": p_new["link"],

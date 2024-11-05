@@ -6,7 +6,7 @@ import shutil
 import decorators
 import hglib
 
-from ..errors import *
+from ..errors import DependencyMissingError
 
 
 def b_(val):
@@ -31,6 +31,7 @@ def s_(val):
 # huge pain to ensure, especially on Windows
 def has_hg_executable():
     return shutil.which("hg")
+
 
 class ensure_hg_executable(decorators.FuncDecorator):
     "Decorator to simplify making sure we don't try to invoke hglib if hg executable is not present"
@@ -66,5 +67,6 @@ def get_client_for(path):
 def has_repo(path):
     try:
         client = get_client_for(path)
+        return Path(s_(client.root())) == Path(path)
     except hglib.error.ServerError:
         return False

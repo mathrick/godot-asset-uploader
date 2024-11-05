@@ -5,8 +5,7 @@ from dulwich.errors import NotGitRepository
 import giturlparse
 from yarl import URL
 
-from .. import config
-from ..errors import *
+from ..errors import BadRepoError
 from ..rest_api import RepoProvider
 
 
@@ -14,7 +13,7 @@ def has_repo(path):
     try:
         repo = GitRepo(path)
         if repo.bare:
-            raise BadRepoError(repo_type="git", path=path, details="Bare Git repos are not supported")
+            raise BadRepoError(repo_type="git", path=path, details="Bare repos are not supported")
         return True
     except NotGitRepository:
         return False
@@ -94,7 +93,7 @@ def guess_repo_url(root):
 
 def guess_repo_provider(url):
     platform = (giturlparse.parse(url or "").platform or "custom").upper()
-    return url and RepoProvider.__members__.get(platform , RepoProvider.CUSTOM)
+    return url and RepoProvider.__members__.get(platform, RepoProvider.CUSTOM)
 
 
 def guess_issues_url(url):
@@ -117,4 +116,3 @@ def guess_download_url(url, commit):
         return None
 
     return str(parsed)
-

@@ -11,12 +11,12 @@ def patch_function_code(target, expected_source):
 
     if (actual := getsource(target)) != expected_source:
         diff = "\n".join("    " + line
-                       for line in difflib.unified_diff(
-                               expected_source.splitlines(),
-                               actual.splitlines(),
-                               fromfile='expected',
-                               tofile='actual'
-                       ))
+                         for line in difflib.unified_diff(
+                             expected_source.splitlines(),
+                             actual.splitlines(),
+                             fromfile='expected',
+                             tofile='actual'
+                         ))
         raise ValueError(f"Source code for '{target.__name__}' differs from expected:\n{diff}")
 
     def patcher(func):

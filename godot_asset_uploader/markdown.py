@@ -9,10 +9,9 @@ from mistletoe.markdown_renderer import MarkdownRenderer, Fragment
 from mistletoe.ast_renderer import AstRenderer
 
 from validator_collection.checkers import is_url
-from yarl import URL
 
-from . import config, vcs
-from .errors import *
+from . import config
+from .errors import GdAssetError
 from .util import is_interesting_link, normalise_video_link, is_image_link
 
 class MetaItem(SpanToken):
@@ -172,12 +171,13 @@ class Renderer(MarkdownRenderer):
 images, video, and HTML fragments"""
         def do_delegate(method):
             method_name = method.__name__
+
             @wraps(method)
             def func(self, token, max_line_length=None):
                 is_block = isinstance(token, BlockToken)
                 callback = getattr(self, callback_name)
                 result = callback and callback(token)
-                if result == True or not callback:
+                if result is True or not callback:
                     if not self.suppressed:
                         kwargs = {"max_line_length": max_line_length} if is_block else {}
                         return getattr(super(), method_name)(token, **kwargs)

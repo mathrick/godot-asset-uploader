@@ -1,6 +1,4 @@
 from functools import reduce
-from itertools import chain
-import sys
 from textwrap import dedent
 from typing import Sequence
 
@@ -9,14 +7,14 @@ from click.core import ParameterSource
 import cloup.constraints
 from cloup.constraints import (
     IsSet, AnySet, Constraint as CloupConstraint, BoundConstraintSpec,
-    Rephraser as CloupRephraser, require_all, accept_none,
+    Rephraser as CloupRephraser, require_all,
     UnsatisfiableConstraint, ConstraintViolated,
 )
 from cloup.constraints._support import BoundConstraint
 from cloup.constraints.conditions import Predicate, ensure_constraints_support
 from cloup.constraints.common import (
     format_param, format_param_list, get_param_name,
-    get_params_whose_value_is_set, param_value_is_set, get_required_params
+    get_params_whose_value_is_set, param_value_is_set
 )
 from cloup._util import make_repr
 
@@ -176,7 +174,10 @@ parameter's required status can be dynamically queried."""
     @classmethod
     def auto_prompter(cls, text=None, /, when="required"):
         if when not in ["required", "always"]:
-            raise ValueError(f"Invalid value for 'when' ('{when}'), allowed values are 'required' and 'always'")
+            raise ValueError(
+                f"Invalid value for 'when' ('{when}'), allowed values are 'required' and 'always'"
+            )
+
         def prompter(param, ctx):
             if isinstance(cls, type):
                 constraints = get_param_constraints(param, ctx)
@@ -299,7 +300,8 @@ class RequireNamed(Constraint):
         return prettyprint_list(param_names)
 
     def help(self, ctx: click.Context) -> str:
-        return f"{self._format_names(self.names, ctx)} {'are' if len(self.names) > 1 else 'is'} required"
+        names = self._format_names(self.names, ctx)
+        return f"{names} are required" if len(self.names) > 1 else f"{names} is required"
 
     def check_consistency(self, params):
         param_names = set([param.name for param in params])
@@ -356,8 +358,7 @@ will be taken if no other condition is satisfied"""
             branch.check_values(params, ctx)
         except ConstraintViolated as err:
             msg = "when {desc}, {err}".format(
-                    desc=cond.description(ctx),
-                    err=err
+                desc=cond.description(ctx), err=err
             ) if cond else f"no conditions were satisfied, and {err}"
 
             raise ConstraintViolated(
@@ -385,7 +386,7 @@ will be taken if no other condition is satisfied"""
     def __repr__(self) -> str:
         args = [{f"condition{i}" if cond else "else_": cond,
                  f"branch{i}": branch}
-                for i, (cond, branch) in enumerate(self._conditions) ]
+                for i, (cond, branch) in enumerate(self._conditions)]
         return make_repr(self, **reduce(dict_merge, args, {}))
 
 

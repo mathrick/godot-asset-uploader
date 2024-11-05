@@ -2,7 +2,6 @@ import random
 import string
 
 import pytest
-import cloup
 
 from godot_asset_uploader.util import (
     VIDEO_EXTS,
@@ -229,26 +228,31 @@ YOUTUBE_UNSUPPORTED_URLS = (
     "https://m.youtube.com/attribution_link?a=8g8kPrPIi-ecwIsS&u=/watch%3Fv%3D{id}%26feature%3Dem-uploademail",
 )
 
+
 def alnum_string(length):
     return ''.join(random.choice(
         string.ascii_uppercase + string.ascii_lowercase + string.digits
     ) for _ in range(length))
 
+
 def random_paths(*exts):
-    path = "/".join([alnum_string(random.randint(4,10))
-                     for _ in range(random.randint(1,3))])
+    path = "/".join([alnum_string(random.randint(4, 10))
+                     for _ in range(random.randint(1, 3))])
     for ext in exts:
         yield f"{path}{ext}"
+
 
 IMAGE_FILE_PATHS = list(random_paths(".jpg", ".png", ".webp", ".gif"))
 VIDEO_FILE_PATHS = list(random_paths(".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg"))
 OTHER_FILE_PATHS = list(random_paths(".txt", ".html", ".json", ""))
+
 
 def random_url_parts():
     for scheme in SCHEMES:
         for domain in DOMAINS:
             for query in QUERIES:
                 yield (scheme, domain, query)
+
 
 SCHEMES = ["ftp", "http", "https"]
 DOMAINS = [
@@ -273,15 +277,18 @@ def test_is_interesting_link(path):
         assert not is_interesting_link(email)
         assert not is_interesting_link(f"mailto:{email}")
 
+
 @pytest.mark.parametrize("path", IMAGE_FILE_PATHS)
 def test_is_image_link(path):
     for scheme, domain, query in random_url_parts():
         assert is_image_link(f"{scheme}://{domain}/{path}{query}")
 
+
 @pytest.mark.parametrize("path", OTHER_FILE_PATHS)
 def test_is_not_image_link(path):
     for scheme, domain, query in random_url_parts():
         assert not is_image_link(f"{scheme}://{domain}/{path}{query}")
+
 
 def test_normalise_youtube_link():
     video_id = alnum_string(12)
@@ -290,10 +297,12 @@ def test_normalise_youtube_link():
     for link in YOUTUBE_SUPPORTED_URLS:
         assert normalise_video_link(link.format(id=video_id)) == canonical
 
+
 def test_normalise_youtube_link_unsupported():
     video_id = alnum_string(12)
     for link in YOUTUBE_UNSUPPORTED_URLS:
         assert normalise_video_link(link.format(id=video_id)) is None
+
 
 @pytest.mark.parametrize("path", VIDEO_FILE_PATHS)
 def test_normalise_video_link(path):
@@ -301,8 +310,9 @@ def test_normalise_video_link(path):
         url = f"{scheme}://{domain}/{path}{query}"
         assert normalise_video_link(url) == url
 
+
 @pytest.mark.parametrize("path", OTHER_FILE_PATHS)
-def test_normalise_video_link(path):
+def test_normalise_video_link_not_video(path):
     for scheme, domain, query in random_url_parts():
         url = f"{scheme}://{domain}/{path}{query}"
         assert normalise_video_link(url) == None
@@ -314,6 +324,7 @@ PRETTYPRINT_INPUTS = [
     (["foo", "bar", "baz"         ], "{}, {}, and {}"     ),
     (["foo", "bar", "baz", "quux" ], "{}, {}, {}, and {}" ),
 ]
+
 
 @pytest.mark.parametrize("input, expected_output", [([], "")] + PRETTYPRINT_INPUTS)
 def test_prettyprint_list(input, expected_output):

@@ -7,18 +7,17 @@ import textwrap
 
 import click, cloup
 from cloup.formatting import sep, HelpFormatter
-from cloup.constraints import constraint
 from yarl import URL
 
 from . import vcs, config, rest_api
-from .errors import *
+from .errors import GdAssetError, HTTPRequestError
 from .markdown import get_asset_description
 from .util import dict_merge, terminal_width, debug_on_error
 from .cli import (
     DynamicPromptOption, PriorityProcessingCommand,
     Constraint, RequireNamed, If, LenientIsSet as IsSet, Cond,
     optional, required_if_missing, require_all, accept_none,
-    readable_param_name, is_default_param,
+    is_default_param,
 )
 
 CMD_EPILOGUE = """Most parameters can be inferred from the project repository,
@@ -50,7 +49,7 @@ def process_repo_provider(ctx, param, provider):
 
 
 def process_root(ctx, param, value):
-    val = process_param(ctx, param, value)
+    process_param(ctx, param, value)
     ctx.obj.try_load()
 
 
@@ -265,7 +264,8 @@ SHORT_AUTH_OPTIONS = [
     option("--password", hide_input=True, default=saved_auth("password"),
            required=Constraint.auto_require(), callback=process_auth, prompt_required=False,
            help="Password to log in with. Will be prompted if not provided"),
-    option("--save-auth/--no-save-auth", default=have_explicit_auth, show_default=True, prompt="Save your login token?",
+    option("--save-auth/--no-save-auth", default=have_explicit_auth,
+           show_default=True, prompt="Save your login token?",
            help="If true, the username and login token will be saved as gdasset-auth.toml in the project root. "
            "Auth information is saved separately from the config values, and the password is never saved."),
 ]
@@ -318,7 +318,7 @@ shared_update_options = make_options_decorator(
         "Repository and download inputs",
         option("--repo-url", metavar="URL", default=default_repo_url, prompt=True,
                help="Repository URL. Will be inferred from repo remote if possible."),
-        option("--repo-provider",  prompt=True, default=default_repo_provider, callback=process_repo_provider,
+        option("--repo-provider", prompt=True, default=default_repo_provider, callback=process_repo_provider,
                type=click.Choice([x.name.lower() for x in rest_api.RepoProvider], case_sensitive=False),
                help="Repository provider. Will be inferred from repo remote if possible."),
         option("--issues-url", metavar="URL", default=default_issues_url, prompt=True,
@@ -350,6 +350,7 @@ def get_asset_payload(cfg: config.Config):
 asset library. The payload generated might not be complete, and might need to be
 merged with another dict to provide missing values (this is the case for updates)"""
     path_offset = "/".join(cfg.readme.parent.relative_to(cfg.root).parts)
+
     def prep_image_url(url):
         if not URL(url).absolute:
             return vcs.resolve_with_base_content_url(
@@ -520,7 +521,7 @@ out to a non-command function because of https://github.com/pallets/click/issues
     if (rest_api.is_payload_same(dict_merge(previous_payload, payload), previous_payload)):
         maybe_print("No changes from the existing asset listing, not updating")
     elif any(rest_api.is_payload_same_as_pending(payload, previous_payload, edit)
-           for edit in pending):
+             for edit in pending):
         maybe_print("There is already a pending edit for this asset with identical changes, not updating")
     else:
         payload = rest_api.merge_asset_payload(payload, previous_payload)
@@ -628,7 +629,7 @@ def safe_cli():
             cli(parent=ctx)
         except GdAssetError as e:
             die(str(e))
-        except Exception as e:
+        except Exception:
             debug_on_error()
 
 if __name__ == "__main__":

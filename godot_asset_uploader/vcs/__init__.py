@@ -6,7 +6,7 @@ import giturlparse
 from yarl import URL
 
 from .. import config
-from ..errors import *
+from ..errors import GdAssetError, NoImplementationError
 from ..rest_api import RepoProvider
 
 from . import git, hg
@@ -69,7 +69,7 @@ def dispatch_vcs(mapping, error_detail, docstring=None):
     return dispatch
 
 def dispatch_url(guessers, docstring=None):
-    def dispatch(url, *args,**kwargs):
+    def dispatch(url, *args, **kwargs):
         for guesser in guessers:
             if (cand := guesser(url, *args, **kwargs)):
                 return cand
@@ -106,7 +106,9 @@ https://raw.githubusercontent.com/owner/repo/commit/docs/dev/relative/path"""
     if provider == RepoProvider.GITHUB:
         base_url = GITHUB_BASE_CONTENT_URL
     elif provider == RepoProvider.BITBUCKET:
-        raise NoImplementationError(f"Don't know how to resolve relative URL ({relative_path}) in BitBucket repos")
+        raise NoImplementationError(
+            f"Can't resolve relative URL ({relative_path}), not supported in BitBucket repos"
+        )
     elif provider == RepoProvider.GITLAB:
         base_url = GITLAB_BASE_CONTENT_URL
     else:
