@@ -47,6 +47,6 @@ jobs:
         summary: true
         # Select which results should be included in the report.
         # Follows the same syntax as `pytest -r`
-        display-options: fEXP
+        display-options: fEX
         fail-on-empty: true
         title: Test results
