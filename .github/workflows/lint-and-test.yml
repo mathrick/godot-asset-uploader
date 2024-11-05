@@ -10,7 +10,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  test:
 
     runs-on: ubuntu-latest
     strategy:
@@ -38,4 +38,15 @@ jobs:
         poetry run flake8 --count --exit-zero --statistics
     - name: Test with pytest
       run: |
-        poetry run pytest
+        poetry run pytest --junit-xml=test-results.xml
+    - name: Report failing tests
+      if: always()
+      uses: pmeier/pytest-results-action@main
+      with:
+        path: test-results.xml
+        summary: true
+        # Select which results should be included in the report.
+        # Follows the same syntax as `pytest -r`
+        display-options: fEXP
+        fail-on-empty: true
+        title: Test results
