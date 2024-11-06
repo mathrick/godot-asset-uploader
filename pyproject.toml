@@ -41,6 +41,7 @@ flake8-pyproject = "^1.2.3"
 
 [tool.flake8]
 max-line-length = 100
+ignore = ["E401"]
 exclude = [".git", "__pycache__"]
 
 [build-system]

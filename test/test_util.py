@@ -315,7 +315,7 @@ def test_normalise_video_link(path):
 def test_normalise_video_link_not_video(path):
     for scheme, domain, query in random_url_parts():
         url = f"{scheme}://{domain}/{path}{query}"
-        assert normalise_video_link(url) == None
+        assert normalise_video_link(url) is None
 
 
 PRETTYPRINT_INPUTS = [

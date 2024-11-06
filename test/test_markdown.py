@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import pytest
 
 import yaml
@@ -63,15 +64,15 @@ def test_get_asset_description(request, data_regression, datadir, readme, change
             return vcs.resolve_with_base_url(repo_url, url, cfg.commit)
         return url
 
-    try:
+    raises = pytest.raises(NoImplementationError) if (
+        "bitbucket.org" in repo_url and "trivial" not in readme
+    ) else nullcontext()
+
+    description, previews = None, None
+    with raises:
         description, previews = get_asset_description(
             cfg, prep_image_func=prep_image_url, prep_link_func=prep_link_url
         )
-    except NoImplementationError as err:
-        if "bitbucket.org" in repo_url:
-            pytest.xfail("BitBucket doesn't have a clear way to resolve relative URLs")
-        else:
-            raise
 
     data_regression.check({
         # Record execution params for easier inspection

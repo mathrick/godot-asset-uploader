@@ -8,8 +8,11 @@ from yarl import URL
 from .. import config
 from ..errors import GdAssetError, NoImplementationError
 
-from .enum import RepoProvider
+from .providers import RepoProvider, remote_to_https
 from . import git, hg
+
+IMPLS = [hg, git]
+
 
 GITHUB_BASE_CONTENT_URL = URL("https://raw.githubusercontent.com/$owner/$repo/$commit/")
 # FIXME: This is probably wrong in some cases, since GitLab has much more
@@ -31,7 +34,7 @@ A "project root" is defined as repository in a supported format
 'gdasset.ini'. If multiple candidates for the root exist, the closest
 one (ie. fewest levels up the directory tree) will be picked."""
     for dir in dir_and_parents(path):
-        if config.has_config_file(dir) or git.has_repo(dir):
+        if config.has_config_file(dir) or any(impl.has_repo(dir) for impl in IMPLS):
             return dir
 
 
@@ -39,9 +42,8 @@ def guess_vcs_type(path):
     """Return a tuple of (vcs_type: str, root: Path) if a known VCS has
 been detected, starting at PATH and going up the parent chain"""
     path = Path(path)
-    impls = [git, hg]
     for dir in dir_and_parents(path):
-        for impl in impls:
+        for impl in IMPLS:
             if impl.has_repo(path):
                 return (impl, path)
     return (None, None)
@@ -93,30 +95,39 @@ guess_repo_url = dispatch_vcs("guess_repo_url", [git, hg], "Repo URL detection")
 # NOTE: Mercurial providers are handled here as well. The biggest hosted provider
 # for Hg is Heptapod, which is a fork of GitLab and will be detected as such
 def guess_repo_provider(url):
-    platform = (giturlparse.parse(url or "").platform or "custom").upper()
+    parsed = giturlparse.parse(url or "")
+    platform = (parsed.platform if parsed else "").upper()
+    if platform == "GITLAB" and "heptapod.net" in parsed.host:
+        return RepoProvider.HEPTAPOD
     return url and RepoProvider.__members__.get(platform, RepoProvider.CUSTOM)
 
 
 def guess_issues_url(url):
     "Try to guess the issues URL based on the remote repo URL"
     provider = guess_repo_provider(url)
-    if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB, RepoProvider.BITBUCKET]:
-        return str(URL(url) / "issues")
+    if provider in [
+            RepoProvider.GITHUB, RepoProvider.GITLAB, RepoProvider.BITBUCKET, RepoProvider.HEPTAPOD
+    ]:
+        return str(URL(remote_to_https(url)) / "issues")
     return None
 
 
 def guess_download_url(url, commit):
     "Try to guess the download URL based on the remote repo URL"
     provider = guess_repo_provider(url)
-    parsed = URL(url)
+    url = URL(remote_to_https(url) or url)
     if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB]:
-        parsed = parsed / "archive" / f"{commit}.zip"
+        url = url / "archive" / f"{commit}.zip"
+    elif provider == RepoProvider.HEPTAPOD:
+        # FIXME: I don't know if the "-" is always valid, I don't fully
+        # understand its role in GitLab URLs
+        url = url / "-" / "archive" / commit / f"{commit}.zip"
     elif provider == RepoProvider.BITBUCKET:
-        parsed = parsed / "get" / f"{commit}.zip"
+        url = url / "get" / f"{commit}.zip"
     else:
         return None
 
-    return str(parsed)
+    return str(url)
 
 
 # FIXME: This assumes git

@@ -2,11 +2,8 @@ from dulwich.repo import Repo as GitRepo
 import dulwich.porcelain as git
 from dulwich.errors import NotGitRepository
 
-import giturlparse
-from yarl import URL
-
 from ..errors import BadRepoError
-from .enum import RepoProvider
+from .providers import remote_to_https
 
 
 def has_repo(path):
@@ -80,12 +77,8 @@ def guess_commit(root):
 def guess_repo_url(root):
     with git.open_repo_closing(root) as repo:
         remote, url = get_remote_repo(repo)
-        parsed = giturlparse.parse(url or "")
-        url = parsed.valid and parsed.url2https
-        # Annoyingly, giturlparse always adds .git, so now we have to get rid of it
-        url = url and str(URL(url).with_suffix(""))
         # Due to how dulwich returns the remote info, if a reasonable remote
         # wasn't found, the URL will be something nonsensical like "origin"
         # instead of None. Even if remote is found, the location could still be
         # a local directory for instance.
-        return url if remote and parsed.valid else None
+        return remote_to_https(url) if remote else None

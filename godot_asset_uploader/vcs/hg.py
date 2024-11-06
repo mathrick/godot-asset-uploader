@@ -1,14 +1,13 @@
+from functools import lru_cache
 from itertools import chain
 from pathlib import Path
 import shutil
 
 import decorators
 import hglib
-import giturlparse
-from yarl import URL
 
 from ..errors import DependencyMissingError
-from .enum import RepoProvider
+from .providers import remote_to_https
 
 
 def b_(val):
@@ -31,6 +30,7 @@ def s_(val):
 # FIXME: Need to figure out how to package hg when creating distributions, so we
 # don't have to rely on PATH just having hg available, which is going to be a
 # huge pain to ensure, especially on Windows
+@lru_cache(maxsize=4)
 def has_hg_executable():
     return shutil.which("hg")
 
@@ -66,7 +66,10 @@ def get_client_for(path):
 
 @ensure_hg_executable(fallback=False)
 def has_repo(path):
-    return (client := get_repo(path)) and Path(s_(client.root())).absolute() == Path(path).absolute()
+    # Note: originally, this code used get_client_for(), but this is very slow
+    # in testing. Pytest defeats our caching attempts, and trying to open a
+    # client in a non-hg directory can take over 0.5s
+    return (path := Path(path) / ".hg").exists() and path.is_dir()
 
 
 @ensure_hg_executable
@@ -90,5 +93,5 @@ def guess_repo_url(root):
     client = get_repo(root)
     for cand in ["default-push", "default"]:
         if b_(cand) in client.paths():
-            return s_(client.paths()[b_(cand)])
+            return remote_to_https(s_(client.paths()[b_(cand)]))
     return None
