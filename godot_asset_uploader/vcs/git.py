@@ -6,7 +6,7 @@ import giturlparse
 from yarl import URL
 
 from ..errors import BadRepoError
-from ..rest_api import RepoProvider
+from .enum import RepoProvider
 
 
 def has_repo(path):
@@ -89,30 +89,3 @@ def guess_repo_url(root):
         # instead of None. Even if remote is found, the location could still be
         # a local directory for instance.
         return url if remote and parsed.valid else None
-
-
-def guess_repo_provider(url):
-    platform = (giturlparse.parse(url or "").platform or "custom").upper()
-    return url and RepoProvider.__members__.get(platform, RepoProvider.CUSTOM)
-
-
-def guess_issues_url(url):
-    "Try to guess the issues URL based on the remote repo URL"
-    provider = guess_repo_provider(url)
-    if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB, RepoProvider.BITBUCKET]:
-        return str(URL(url) / "issues")
-    return None
-
-
-def guess_download_url(url, commit):
-    "Try to guess the download URL based on the remote repo URL"
-    provider = guess_repo_provider(url)
-    parsed = URL(url)
-    if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB]:
-        parsed = parsed / "archive" / f"{commit}.zip"
-    elif provider == RepoProvider.BITBUCKET:
-        parsed = parsed / "get" / f"{commit}.zip"
-    else:
-        return None
-
-    return str(parsed)

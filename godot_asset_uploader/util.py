@@ -1,5 +1,4 @@
 import email
-from enum import Enum
 from functools import lru_cache
 from itertools import islice
 import os
@@ -9,14 +8,12 @@ import sys, pdb, traceback
 
 from yarl import URL
 
-class StrEnum(str, Enum):
-    pass
-
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".ogv", ".ogg"}
 IMAGE_EXTS = {".jpg", ".png", ".webp", ".gif"}
 
 YOUTUBE_URL = URL("https://youtube.com/watch")
 YOUTUBE_DOMAINS = ("youtube.com", "youtube-nocookie.com")
+
 
 def is_interesting_link(href):
     "Return True if href is 'interesting', ie. might potentially point to preview media"
@@ -31,9 +28,11 @@ def is_interesting_link(href):
             return False
     return True
 
+
 def is_image_link(href):
     uri = URL(href)
-    return uri.path and any([uri.path.lower().endswith(ext) for ext in IMAGE_EXTS])
+    return uri.path and any(uri.path.lower().endswith(ext) for ext in IMAGE_EXTS)
+
 
 def normalise_youtube_link(href):
     uri = URL(href)
@@ -54,6 +53,7 @@ def normalise_youtube_link(href):
             return normalise_youtube_link(resolved)
     return None
 
+
 def normalise_video_link(href):
     if (out := normalise_youtube_link(href)):
         return out
@@ -62,11 +62,14 @@ def normalise_video_link(href):
         return href
     return None
 
+
 def is_youtube_link(href):
     return normalise_youtube_link(href) is not None
 
+
 def terminal_width(max_width=100):
     return min(shutil.get_terminal_size().columns, max_width)
+
 
 def debug_on_error():
     # copied from pdbpp.xpm(), to provide a portable fallback in case pdbpp is
@@ -79,20 +82,25 @@ def debug_on_error():
         # it doesn't need to be lexically visible
         raise
 
+
 def is_sequence(x):
     return isinstance(x, t.Sequence) and not isinstance(x, (bytes, str))
+
 
 def ensure_tuple(x):
     if isinstance(x, tuple):
         return x
     return (x,)
 
+
 def ensure_sequence(x):
     return x if is_sequence(x) else (x,)
+
 
 def dict_merge(d1, d2):
     "Like d1.update(d2), but returns a new dict"
     return {k: d2.get(k, d1.get(k)) for k in set(d1) | set(d2)}
+
 
 def batched(iterable, n):
     # batched('ABCDEFG', 3) → ABC DEF G
@@ -102,9 +110,11 @@ def batched(iterable, n):
     while batch := tuple(islice(iterator, n)):
         yield batch
 
+
 def normalise_newlines(string):
     "Normalise \r and \r\n to \n"
     return "\n".join(string.splitlines())
+
 
 def prettyprint_list(elems, sep1=" and ", sep2=", ", sep3=", and "):
     """Return a string listing elems in a nice way, ie.:
@@ -119,6 +129,7 @@ def prettyprint_list(elems, sep1=" and ", sep2=", ", sep3=", and "):
         return sep1.join(elems)
     else:
         return f"{sep2.join(elems[:-1])}{sep3}{elems[-1]}"
+
 
 @lru_cache
 def is_typed_as(spec, x):

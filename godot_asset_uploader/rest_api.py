@@ -7,7 +7,7 @@ from validator_collection.checkers import is_integer, is_url
 import requests
 from yarl import URL
 
-from .util import StrEnum, dict_merge, normalise_newlines
+from .util import dict_merge, normalise_newlines
 from .errors import GdAssetError, HTTPRequestError
 
 OFFICIAL_LIBRARY_ROOT = URL("https://godotengine.org/")
@@ -70,21 +70,6 @@ def find_category_name(id, library=OFFICIAL_LIBRARY_ROOT):
     if not id:
         return (None, None)
     return CATEGORY_ID_MAP[OFFICIAL_LIBRARY_ROOT].get(int(id), (None, None))
-
-# FIXME: Support other providers
-class RepoProvider(StrEnum):
-    CUSTOM = "Custom"
-    GITHUB = "GitHub"
-    GITLAB = "GitLab"
-    BITBUCKET = "BitBucket"
-
-    @classmethod
-    def _missing_(cls, value):
-        value = value.upper()
-        for member in cls:
-            if member.name == value:
-                return member
-        return None
 
 
 def resp_json(resp):

@@ -42,15 +42,17 @@ GITLAB_SELF_HOSTED_EXPECTED = (
     HEAD, RepoProvider.GITLAB, GITLAB_SELF_HOSTED_URL, GITLAB_SELF_HOSTED_ISSUES_URL, GITLAB_SELF_HOSTED_DOWNLOAD_URL
 )
 
+
 @pytest.fixture
 def tmp_git_repo(shared_datadir):
     def prepare(repo_name):
-        root = shared_datadir / repo_name
+        root = shared_datadir / "git" / repo_name
         # We have to do gymnastics here because git categorically
         # refuses to track another git repo as plain files
         (root / "_git").rename(root / ".git")
         return root
     return prepare
+
 
 # NOTE: This is destructive to the index and working tree and will
 # throw away all uncommitted state and not do a merge! Only suitable
@@ -61,11 +63,13 @@ def reset_branch(repo, branch):
         update_head(repo, branch)
         reset(repo, "hard", branch)
 
+
 def test_git_basic(tmp_git_repo):
     repo = tmp_git_repo("repo-github")
     assert guess_vcs_type(repo) == (git_module, repo)
     assert isinstance(get_repo(repo), Repo)
     assert get_project_root(repo) == repo
+
 
 @pytest.mark.parametrize(
     "repo, branch, expected",

@@ -1,5 +1,4 @@
 import pytest
-import cloup
 
 from godot_asset_uploader.cli import (
     RequireNamed,

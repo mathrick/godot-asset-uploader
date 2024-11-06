@@ -7,8 +7,8 @@ from yarl import URL
 
 from .. import config
 from ..errors import GdAssetError, NoImplementationError
-from ..rest_api import RepoProvider
 
+from .enum import RepoProvider
 from . import git, hg
 
 GITHUB_BASE_CONTENT_URL = URL("https://raw.githubusercontent.com/$owner/$repo/$commit/")
@@ -16,9 +16,11 @@ GITHUB_BASE_CONTENT_URL = URL("https://raw.githubusercontent.com/$owner/$repo/$c
 # complicated ways of grouping repos with multiple levels of hierarchy
 GITLAB_BASE_CONTENT_URL = URL("https://$host/$owner/$repo/-/raw/$commit/")
 
+
 def dir_and_parents(path):
     path = Path(path)
     return chain([path] if path.is_dir() else [], path.parents)
+
 
 def get_project_root(path):
     """Find the closest project root which contains the given PATH. The
@@ -32,6 +34,7 @@ one (ie. fewest levels up the directory tree) will be picked."""
         if config.has_config_file(dir) or git.has_repo(dir):
             return dir
 
+
 def guess_vcs_type(path):
     """Return a tuple of (vcs_type: str, root: Path) if a known VCS has
 been detected, starting at PATH and going up the parent chain"""
@@ -43,6 +46,7 @@ been detected, starting at PATH and going up the parent chain"""
                 return (impl, path)
     return (None, None)
 
+
 def get_repo(path):
     """Open a repo containing PATH, traversing up the tree as needed, and using
 whatever VCS is closest (currently Git and Mercurial are supported)."""
@@ -52,13 +56,13 @@ whatever VCS is closest (currently Git and Mercurial are supported)."""
     return None
 
 
-def dispatch_vcs(mapping, error_detail, docstring=None):
+def dispatch_vcs(meth, error_detail, docstring=None):
     def dispatch(root, *args, **kwargs):
         try:
             vcs_type, root = guess_vcs_type(root)
             if not vcs_type:
                 return None
-            return mapping[vcs_type](root, *args, **kwargs)
+            return getattr(vcs_type, meth)(root, *args, **kwargs)
         except KeyError:
             raise NotImplementedError(
                 f"{error_detail} for {vcs_type} not implemented"
@@ -67,6 +71,7 @@ def dispatch_vcs(mapping, error_detail, docstring=None):
     if docstring is not None:
         dispatch.__doc__ = docstring
     return dispatch
+
 
 def dispatch_url(guessers, docstring=None):
     def dispatch(url, *args, **kwargs):
@@ -80,15 +85,38 @@ def dispatch_url(guessers, docstring=None):
     return dispatch
 
 
-guess_commit = dispatch_vcs({git: git.guess_commit}, "Head commit extraction")
+guess_commit = dispatch_vcs("guess_commit", [git, hg], "Head commit extraction")
 
-guess_repo_url = dispatch_vcs({git: git.guess_repo_url}, "Repo URL detection")
+guess_repo_url = dispatch_vcs("guess_repo_url", [git, hg], "Repo URL detection")
 
-guess_repo_provider = dispatch_url([git.guess_repo_provider])
 
-guess_issues_url = dispatch_url([git.guess_issues_url])
+# NOTE: Mercurial providers are handled here as well. The biggest hosted provider
+# for Hg is Heptapod, which is a fork of GitLab and will be detected as such
+def guess_repo_provider(url):
+    platform = (giturlparse.parse(url or "").platform or "custom").upper()
+    return url and RepoProvider.__members__.get(platform, RepoProvider.CUSTOM)
 
-guess_download_url = dispatch_url([git.guess_download_url])
+
+def guess_issues_url(url):
+    "Try to guess the issues URL based on the remote repo URL"
+    provider = guess_repo_provider(url)
+    if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB, RepoProvider.BITBUCKET]:
+        return str(URL(url) / "issues")
+    return None
+
+
+def guess_download_url(url, commit):
+    "Try to guess the download URL based on the remote repo URL"
+    provider = guess_repo_provider(url)
+    parsed = URL(url)
+    if provider in [RepoProvider.GITHUB, RepoProvider.GITLAB]:
+        parsed = parsed / "archive" / f"{commit}.zip"
+    elif provider == RepoProvider.BITBUCKET:
+        parsed = parsed / "get" / f"{commit}.zip"
+    else:
+        return None
+
+    return str(parsed)
 
 
 # FIXME: This assumes git
@@ -101,7 +129,7 @@ the difference between repository root, and the location of the file the link is
 being generated from. I.e. if the links are resolved for docs/dev/README.md, then
 the offset would be "docs/dev", and the resulting URL would become
 https://raw.githubusercontent.com/owner/repo/commit/docs/dev/relative/path"""
-    provider = git.guess_repo_provider(provider_url)
+    provider = guess_repo_provider(provider_url)
     parsed = giturlparse.parse(provider_url or "")
     if provider == RepoProvider.GITHUB:
         base_url = GITHUB_BASE_CONTENT_URL

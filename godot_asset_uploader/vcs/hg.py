@@ -1,12 +1,14 @@
-from functools import wraps
 from itertools import chain
 from pathlib import Path
 import shutil
 
 import decorators
 import hglib
+import giturlparse
+from yarl import URL
 
 from ..errors import DependencyMissingError
+from .enum import RepoProvider
 
 
 def b_(val):
@@ -36,7 +38,6 @@ def has_hg_executable():
 class ensure_hg_executable(decorators.FuncDecorator):
     "Decorator to simplify making sure we don't try to invoke hglib if hg executable is not present"
     def decorate(self, func, error=False, fallback=None):
-        @wraps(func)
         def wrapper(*args, **kwargs):
             if not has_hg_executable():
                 if error:
@@ -63,10 +64,31 @@ def get_client_for(path):
     return CLIENTS[path]
 
 
-@ensure_hg_executable
+@ensure_hg_executable(fallback=False)
 def has_repo(path):
+    return (client := get_repo(path)) and Path(s_(client.root())).absolute() == Path(path).absolute()
+
+
+@ensure_hg_executable
+def get_repo(path):
+    """Open a repo containing PATH, traversing up the tree as needed, and using
+whatever VCS is closest (currently Git and Mercurial are supported)."""
     try:
-        client = get_client_for(path)
-        return Path(s_(client.root())) == Path(path)
+        return get_client_for(path)
     except hglib.error.ServerError:
-        return False
+        return None
+
+
+# FIXME: should this try to handle hg-git and git remotes?
+@ensure_hg_executable(error=True)
+def guess_commit(root):
+    client = get_client_for(root)
+    return s_(client.parents()[0].node)
+
+
+def guess_repo_url(root):
+    client = get_repo(root)
+    for cand in ["default-push", "default"]:
+        if b_(cand) in client.paths():
+            return s_(client.paths()[b_(cand)])
+    return None
