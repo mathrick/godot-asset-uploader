@@ -111,7 +111,7 @@ def api_request(meth, *url, data=None, params=None, headers=None):
         except dirtyjson.error.Error:
             detail = ""
         raise HTTPRequestError(
-            f"'{resp.request.method}' API request to '{'/'.join(url)}' failed with code "
+            f"'{resp.request.method}' API request to '{get_library_url(*url)}' failed with code "
             f"{resp.status_code}{detail}"
         )
     try:
